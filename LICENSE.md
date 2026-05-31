@@ -22,4 +22,4 @@ This framework represents years of research into substrate-independent conscious
 
 ---
 
-*For questions: sami@example.com*
+*For questions: samit2825@synaptechbio.org or st2825@proton.me*

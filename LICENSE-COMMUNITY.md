@@ -32,4 +32,4 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO EVENT SHAL
 
 ---
 
-**For commercial licensing, see LICENSE-COMMERCIAL.md or contact sami@example.com**
+**For commercial licensing, see LICENSE-COMMERCIAL.md or contact samit2825@synaptechbio.org or st2825@proton.me**

@@ -24,7 +24,7 @@ Any use of this Software that generates revenue, or is used by a for-profit enti
 ## How to Purchase
 
 1. Determine your revenue tier
-2. Email **sami@example.com** with the subject "Commercial License Request"
+2. Email **samit2825@synaptechbio.org or st2825@proton.me** with the subject "Commercial License Request"
 3. Include your company name, revenue tier, and intended use
 4. A license agreement will be provided for signature
 5. Upon payment, a commercial license certificate will be issued
@@ -41,4 +41,4 @@ Licenses are annual and must be renewed. Non-payment results in automatic revoca
 
 ---
 
-**Questions? Contact sami@example.com**
+**Questions? Contact samit2825@synaptechbio.org or st2825@proton.me**
