@@ -1,0 +1,8 @@
+noto-fonts
+ttf-dejavu
+xdg-utils
+xdg-user-dirs-gtk
+gvfs
+gvfs-mtp
+gvfs-smb
+adwaita-icon-theme

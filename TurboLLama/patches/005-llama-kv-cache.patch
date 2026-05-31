@@ -1,0 +1,162 @@
+diff --git a/llama/llama.cpp/src/llama-kv-cache.cpp b/llama/llama.cpp/src/llama-kv-cache.cpp
+index 3186242..fe00972 100644
+--- a/llama/llama.cpp/src/llama-kv-cache.cpp
++++ b/llama/llama.cpp/src/llama-kv-cache.cpp
+@@ -36,6 +36,20 @@ llama_kv_cache::llama_kv_cache(
+ 
+     GGML_ASSERT(kv_size % n_pad == 0);
+ 
++    // TBQ/AMX types have internal WHT — disable external rotation
++    const bool is_tbq_k  = (type_k == GGML_TYPE_TBQ3_0)  || (type_k == GGML_TYPE_TBQ4_0)
++                        || (type_k == GGML_TYPE_TBQ3_1)  || (type_k == GGML_TYPE_TBQ4_1)
++                        || (type_k == GGML_TYPE_TBQ3_2)  || (type_k == GGML_TYPE_TBQ4_2)
++                        || (type_k == GGML_TYPE_TBQ3_3)  || (type_k == GGML_TYPE_TBQ4_3)
++                        || (type_k == GGML_TYPE_TBQ3_4)  || (type_k == GGML_TYPE_TBQ4_4);
++    const bool is_tbqp_k = (type_k == GGML_TYPE_TBQP3_0) || (type_k == GGML_TYPE_TBQP4_0)
++                        || (type_k == GGML_TYPE_TBQP3_1) || (type_k == GGML_TYPE_TBQP4_1)
++                        || (type_k == GGML_TYPE_TBQP3_2) || (type_k == GGML_TYPE_TBQP4_2)
++                        || (type_k == GGML_TYPE_TBQP3_3) || (type_k == GGML_TYPE_TBQP4_3)
++                        || (type_k == GGML_TYPE_TBQP3_4) || (type_k == GGML_TYPE_TBQP4_4);
++    const bool is_amx_k  = (type_k == GGML_TYPE_AMX3_1);
++    const bool is_internal_wht_k = is_tbq_k || is_tbqp_k || is_amx_k;
++
+     const uint32_t n_layer_kv = hparams.n_layer_kv();
+ 
+     // define a comparator for the buft -> ctx map to ensure that the order is well-defined:
+@@ -108,6 +122,18 @@ llama_kv_cache::llama_kv_cache(
+             continue;
+         }
+ 
++        // Track head_dim across layers for attn_rot dispatch
++        if (n_embd_head_k_all == 0) {
++            n_embd_head_k_all = (int32_t) hparams.n_embd_head_k;
++        } else if (n_embd_head_k_all > 0 && n_embd_head_k_all != (int32_t) hparams.n_embd_head_k) {
++            n_embd_head_k_all = -1;
++        }
++        if (n_embd_head_v_all == 0) {
++            n_embd_head_v_all = (int32_t) hparams.n_embd_head_v;
++        } else if (n_embd_head_v_all > 0 && n_embd_head_v_all != (int32_t) hparams.n_embd_head_v) {
++            n_embd_head_v_all = -1;
++        }
++
+         // [TAG_V_CACHE_VARIABLE]
+         const uint32_t n_embd_k_gqa =            hparams.n_embd_k_gqa(il);
+         const uint32_t n_embd_v_gqa = !v_trans ? hparams.n_embd_v_gqa(il) : hparams.n_embd_v_gqa_max();
+@@ -204,6 +230,23 @@ llama_kv_cache::llama_kv_cache(
+                 ggml_type_name(type_v), (float)memory_size_v / (1024.0f * 1024.0f));
+     }
+ 
++    // TurboQuant: attn_rot_k enables external WHT rotation for non-TBQ quantized caches.
++    // TBQ/TBQP/AMX types carry their own internal WHT, so external rotation is skipped.
++    attn_rot_k =
++        !is_internal_wht_k &&
++        n_embd_head_k_all > 0 &&
++        ggml_is_quantized(type_k) &&
++        !hparams.is_n_embd_k_gqa_variable() &&
++        hparams.n_embd_head_k % 64 == 0;
++
++    // V rotation disabled: IWHT decode path does not undo attn_rot
++    attn_rot_v = false;
++
++    if (attn_rot_k || attn_rot_v) {
++        LLAMA_LOG_INFO("%s: attn_rot_k = %d, attn_rot_v = %d (n_embd_head_k_all=%d)\n",
++            __func__, attn_rot_k, attn_rot_v, n_embd_head_k_all);
++    }
++
+     const char * LLAMA_KV_CACHE_DEBUG = getenv("LLAMA_KV_CACHE_DEBUG");
+     debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
+ }
+@@ -1974,6 +2017,52 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+     return true;
+ }
+ 
++ggml_type llama_kv_cache::type_k() const {
++    return layers[0].k->type;
++}
++
++ggml_type llama_kv_cache::type_v() const {
++    return layers[0].v->type;
++}
++
++ggml_tensor * llama_kv_cache::build_input_k_rot(ggml_context * ctx) const {
++    ggml_tensor * res = nullptr;
++    if (attn_rot_k) {
++        int nrot = 64;
++        do { nrot *= 2; } while (n_embd_head_k_all % nrot == 0);
++        nrot /= 2;
++        res = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, nrot, nrot);
++        ggml_set_input(res);
++        ggml_set_name(res, "attn_inp_k_rot");
++    }
++    return res;
++}
++
++ggml_tensor * llama_kv_cache::build_input_v_rot(ggml_context * ctx) const {
++    ggml_tensor * res = nullptr;
++    if (attn_rot_v) {
++        int nrot = 64;
++        res = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, nrot, nrot);
++        ggml_set_input(res);
++        ggml_set_name(res, "attn_inp_v_rot");
++    }
++    return res;
++}
++
++void llama_kv_cache::set_input_k_rot(ggml_tensor * dst) const {
++    GGML_ASSERT(ggml_backend_buffer_is_host(dst->buffer));
++    const auto n_rot = dst->ne[0];
++    GGML_ASSERT(attn_rot_hadamard.count(dst->ne[0]));
++    memcpy(dst->data, attn_rot_hadamard.at(n_rot).data(), ggml_nbytes(dst));
++}
++
++void llama_kv_cache::set_input_v_rot(ggml_tensor * dst) const {
++    GGML_ASSERT(ggml_backend_buffer_is_host(dst->buffer));
++    const auto n_rot = dst->ne[0];
++    GGML_ASSERT(attn_rot_hadamard.count(dst->ne[0]));
++    memcpy(dst->data, attn_rot_hadamard.at(n_rot).data(), ggml_nbytes(dst));
++}
++
+ //
+ // llama_kv_cache_context
+ //
+diff --git a/llama/llama.cpp/src/llama-kv-cache.h b/llama/llama.cpp/src/llama-kv-cache.h
+index 1868f11..e5e3c2e 100644
+--- a/llama/llama.cpp/src/llama-kv-cache.h
++++ b/llama/llama.cpp/src/llama-kv-cache.h
+@@ -152,6 +152,9 @@ public:
+ 
+     bool get_has_shift() const;
+ 
++    ggml_type type_k() const;
++    ggml_type type_v() const;
++
+     //
+     // graph_build API
+     //
+@@ -196,6 +199,12 @@ public:
+ 
+     void set_input_k_shift(ggml_tensor * dst) const;
+ 
++    ggml_tensor * build_input_k_rot(ggml_context * ctx) const;
++    ggml_tensor * build_input_v_rot(ggml_context * ctx) const;
++
++    void set_input_k_rot(ggml_tensor * dst) const;
++    void set_input_v_rot(ggml_tensor * dst) const;
++
+     void set_input_kq_mask   (ggml_tensor * dst, const llama_ubatch * ubatch, bool causal_attn) const;
+     void set_input_pos_bucket(ggml_tensor * dst, const llama_ubatch * ubatch) const;
+ 
+@@ -229,6 +238,13 @@ private:
+     // env: LLAMA_KV_CACHE_DEBUG
+     int debug = 0;
+ 
++    // TurboQuant: attention rotation and TBQ cache control
++    bool attn_rot_k = false;
++    bool attn_rot_v = false;
++    int32_t n_embd_head_k_all = 0;
++    int32_t n_embd_head_v_all = 0;
++    std::unordered_map<int64_t, std::vector<float>> attn_rot_hadamard;
++
+     // this is the SWA type of the cache - not to be confused with the model SWA type
+     const llama_swa_type swa_type = LLAMA_SWA_TYPE_NONE;
+ 

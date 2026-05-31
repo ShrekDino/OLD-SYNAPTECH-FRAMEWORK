@@ -1,0 +1,13 @@
+# Hermes config.yaml drop-in for TurboLLama
+# Replace the model section in ~/.hermes/config.yaml with this:
+#
+# model:
+#   api_key: ollama
+#   base_url: http://127.0.0.1:11434/v1
+#   default: qwen3.6:35b-a3b
+#   provider: custom
+model:
+  api_key: ollama
+  base_url: http://127.0.0.1:11434/v1
+  default: qwen3.6:35b-a3b
+  provider: custom

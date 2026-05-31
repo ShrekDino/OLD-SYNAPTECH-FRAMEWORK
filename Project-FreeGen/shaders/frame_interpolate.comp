@@ -1,0 +1,46 @@
+#version 460
+
+// Frame interpolation compute shader
+// Blends current and previous frame for motion-adaptive interpolation
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba8) uniform readonly image2D uCurrent;
+layout(set = 0, binding = 1, rgba8) uniform readonly image2D uPrevious;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D uOutput;
+
+layout(push_constant) uniform PushConstants {
+    uint inputWidth;
+    uint inputHeight;
+    float blendFactor;
+    uint frameIndex;
+} pc;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pos.x >= int(pc.inputWidth) || pos.y >= int(pc.inputHeight)) {
+        return;
+    }
+
+    vec4 current = imageLoad(uCurrent, pos);
+    vec4 previous = imageLoad(uPrevious, pos);
+
+    // Compute per-pixel motion estimate using luminance difference
+    float lumCurr = dot(current.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float lumPrev = dot(previous.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float motion = abs(lumCurr - lumPrev);
+
+    // Adaptive blend: more motion = more weight on current frame
+    float blend = mix(pc.blendFactor, 1.0, motion * 10.0);
+
+    // On even frames output the interpolated frame, on odd frames output current
+    vec4 result;
+    if ((pc.frameIndex & 1u) == 0u) {
+        result = mix(previous, current, blend);
+    } else {
+        result = current;
+    }
+
+    imageStore(uOutput, pos, result);
+}

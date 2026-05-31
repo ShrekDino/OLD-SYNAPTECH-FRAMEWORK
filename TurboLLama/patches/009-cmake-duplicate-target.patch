@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f402d23..bd988e0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -115,7 +115,9 @@ if(CMAKE_CUDA_COMPILER)
+     endif()
+ 
+     find_package(CUDAToolkit)
+-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ml/backend/ggml/ggml/src/ggml-cuda)
++    if(NOT TARGET ggml-cuda)
++        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ml/backend/ggml/ggml/src/ggml-cuda)
++    endif()
+     target_include_directories(ggml-cuda PRIVATE ${GGML_INCLUDE_DIRS})
+     install(TARGETS ggml-cuda
+         RUNTIME_DEPENDENCIES

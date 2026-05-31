@@ -1,0 +1,6 @@
+# GPU-specific dependencies (installed automatically by requirements.txt)
+# CuPy must match your CUDA version:
+#   CUDA 12.x → cupy-cuda12x
+#   CUDA 11.x → cupy-cuda11x
+#   CUDA 10.2 → cupy-cuda102
+cupy-cuda12x>=13.0.0

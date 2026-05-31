@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flywire-lsm"
+version = "1.0.0"
+description = "Two-Region Hierarchical Liquid State Machine — reservoir computer inspired by the Drosophila connectome"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "fastapi>=0.100",
+    "uvicorn>=0.22",
+    "fpdf2>=2.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "psutil>=5.0",
+    "ruff>=0.4.0",
+    "pre-commit>=3.0",
+]
+
+[project.urls]
+Source = "https://github.com/anomalyco/Flywirellm"
+
+[project.scripts]
+flywire-lsm = "flywire_lsm.server:main"
+
+[tool.setuptools.packages.find]
+include = ["flywire_lsm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["N802", "N803", "N806"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"flywire_lsm_text.py" = ["E402", "F401", "F403"]
+"generate_docs.py" = ["E501", "F841"]

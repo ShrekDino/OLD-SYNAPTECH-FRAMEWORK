@@ -1,0 +1,31 @@
+name: samchat
+description: Silent by Default, Urgent by Intent — a decentralized messaging app built on the Matrix Protocol.
+publish_to: 'none'
+version: 0.6.2
+repository: https://github.com/anomalyco/samchat
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.4.0
+  flutter_local_notifications: ^17.1.0
+  http: ^1.1.0
+  uuid: ^4.1.0
+  shared_preferences: ^2.2.0
+  go_router: ^14.0.0
+  matrix: ^0.27.0
+  flutter_web_auth_2: ^5.0.0
+  cupertino_icons: ^1.0.6
+  firebase_core: ^2.24.2
+  firebase_messaging: ^14.7.10
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

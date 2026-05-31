@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  dev:
+    build:
+      context: .
+      target: build
+    container_name: freegen-dev
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /run/user/${UID:-1000}/pipewire-0:/run/user/${UID:-1000}/pipewire-0
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - XDG_RUNTIME_DIR=/run/user/${UID:-1000}
+      - PIPEWIRE_RUNTIME_DIR=/run/user/${UID:-1000}
+      - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
+    network_mode: host
+    group_add:
+      - video
+      - render
+    devices:
+      - /dev/dri:/dev/dri
+    stdin_open: true
+    tty: true
+
+  build:
+    build:
+      context: .
+      target: build
+    container_name: freegen-build
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "
+      cmake --preset release &&
+      cmake --build build/release -j$(nproc)
+      "
+
+  shell:
+    build:
+      context: .
+      target: deps
+    container_name: freegen-shell
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true

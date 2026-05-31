@@ -1,0 +1,63 @@
+diff --git a/ml/backend/ggml/ggml/src/ggml-cuda/ggml-cuda.cu b/ml/backend/ggml/ggml/src/ggml-cuda/ggml-cuda.cu
+index b8ed370..451c3ae 100644
+--- a/ml/backend/ggml/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ml/backend/ggml/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -80,6 +80,35 @@
+ #include <string>
+ #include <vector>
+ 
++// Expert cache: LRU for MoE expert weights
++struct expert_cache_ent { uint64_t key; void * dev_ptr; size_t n_bytes; };
++static struct expert_cache_ent g_ecache[256];
++static int g_ecache_n = 0;
++static int64_t g_ecache_used = 0;
++static int64_t g_ecache_max = 1073741824;
++
++static uint64_t eckey(const void * t, int e) {
++    return (uint64_t)(uintptr_t)t ^ ((uint64_t)e << 32);
++}
++static void * ecget(uint64_t k) {
++    for (int i = 0; i < g_ecache_n; i++)
++        if (g_ecache[i].key == k) {
++            if (i > 0) { struct expert_cache_ent tmp = g_ecache[i];
++                memmove(&g_ecache[1], &g_ecache[0], i * sizeof(struct expert_cache_ent));
++                g_ecache[0] = tmp; }
++            return g_ecache[0].dev_ptr; }
++    return NULL;
++}
++static void ecput(uint64_t k, void * p, size_t n) {
++    while (g_ecache_n > 0 && g_ecache_used + (int64_t)n > g_ecache_max) {
++        g_ecache_n--; cudaFree(g_ecache[g_ecache_n].dev_ptr);
++        g_ecache_used -= (int64_t)g_ecache[g_ecache_n].n_bytes; }
++    if (g_ecache_n >= 256) { g_ecache_n--; cudaFree(g_ecache[g_ecache_n].dev_ptr); }
++    memmove(&g_ecache[1], &g_ecache[0], g_ecache_n * sizeof(struct expert_cache_ent));
++    g_ecache[0].key = k; g_ecache[0].dev_ptr = p; g_ecache[0].n_bytes = n;
++    g_ecache_n++; g_ecache_used += (int64_t)n;
++}
++
+ static_assert(sizeof(half) == sizeof(ggml_fp16_t), "wrong fp16 size");
+ 
+ [[noreturn]]
+@@ -2533,6 +2562,22 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+         dst_slice.nb[3]  = dst_slice.ne[2] * dst_slice.nb[2];
+         dst_slice.data   = dst_data_cur;
+ 
++        // Expert cache: check for cached GPU copy of this expert
++        uint64_t ck = eckey((const void *)src0, (int)i02);
++        void * cached = ecget(ck);
++        if (cached) {
++            src0_slice.data = (char *) cached;
++        }
++        void * saved_src0_data = src0_slice.data;
++        // Cache the expert weights after first use
++        if (!cached && saved_src0_data == (char *)src0->data + i02*nb02) {
++            size_t expert_nbytes = ggml_row_size(src0->type, src0->ne[0]) * src0->ne[1];
++            void * dev_buf = NULL;
++            if (cudaMalloc(&dev_buf, expert_nbytes) == cudaSuccess) {
++                cudaMemcpyAsync(dev_buf, saved_src0_data, expert_nbytes, cudaMemcpyHostToDevice, stream);
++                ecput(ck, dev_buf, expert_nbytes);
++            }
++        }
+         ggml_cuda_mul_mat(ctx, &src0_slice, &src1_slice, &dst_slice);
+         CUDA_CHECK(cudaGetLastError());
+ 

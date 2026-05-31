@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dak"
+version = "0.1.0"
+description = "Digital Autopoietic Kernel — a substrate-independent consciousness framework"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ShrekDino"},
+]
+requires-python = ">=3.12"
+dependencies = [
+    "psutil>=5.9.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "rich>=13.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "httpx>=0.25.0",
+    "chromadb>=1.5.0",
+    "torch>=2.0.0",
+    "transformers>=4.44.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ShrekDino/dak"
+Repository = "https://github.com/ShrekDino/dak"
+
+[project.scripts]
+dak = "dak.main:main"
+dak-repl = "dak.interact.repl:main"
+dak-tui = "dak.interact.tui:main"
+dak-api = "dak.interact.api:main"
+dak-chat = "dak.interact.chat:main"
+dak-usf = "dak.main:usf_main"
+erebus = "dak.main:usf_main"
+
+[tool.setuptools.packages.find]
+namespaces = false

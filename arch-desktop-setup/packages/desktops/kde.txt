@@ -1,0 +1,15 @@
+plasma-desktop
+plasma-wayland-session
+plasma-nm
+plasma-pa
+kde-gtk-config
+breeze-gtk
+sddm
+konsole
+dolphin
+kate
+gwenview
+spectacle
+okular
+ark
+kcalc

@@ -1,0 +1,6 @@
+networkmanager
+network-manager-applet
+wpa_supplicant
+bluez
+bluez-utils
+firewalld

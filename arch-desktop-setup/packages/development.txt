@@ -1,0 +1,10 @@
+cmake
+docker
+github-cli
+htop
+inotify-tools
+nvm
+ollama
+python-pipx
+ripgrep
+smartmontools

@@ -1,0 +1,8 @@
+btop
+fastfetch
+fuse2
+snapper
+zram-generator
+cliphist
+wl-clipboard
+wl-clip-persist

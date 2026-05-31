@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.env
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime session logs
+output/realtime_run_*.md
+
+# Data (large intermediate files, auto-downloaded by projectome.py)
+data/*.feather
+data/*.h5
+data/*.hdf5
+
+# Logs and diagnostics
+*.log
+*.html

@@ -1,0 +1,21 @@
+name: flybrain
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - pyarrow
+  - requests
+  - tqdm
+  - trimesh
+  - plotly
+  - kaleido
+  - psutil
+  - pip:
+    - navis
+    - fafbseg
+    - flybrains

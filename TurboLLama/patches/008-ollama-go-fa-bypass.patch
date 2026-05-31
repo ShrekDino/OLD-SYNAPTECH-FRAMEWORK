@@ -1,0 +1,49 @@
+diff --git a/fs/ggml/ggml.go b/fs/ggml/ggml.go
+index ea09273..b390a16 100644
+--- a/fs/ggml/ggml.go
++++ b/fs/ggml/ggml.go
+@@ -854,7 +854,7 @@ func (f GGML) SupportsKVCacheType(cacheType string) bool {
+ 		return true
+ 	}
+ 
+-	return slices.Contains([]string{"q8_0", "q4_0"}, cacheType)
++	return slices.Contains([]string{"q8_0", "q4_0", "turbo3", "turbo4"}, cacheType)
+ }
+ 
+ // KVCacheTypeIsQuantized checks if the requested cache type is a quantized type
+diff --git a/llama/llama.go b/llama/llama.go
+index 87844f2..ee36217 100644
+--- a/llama/llama.go
++++ b/llama/llama.go
+@@ -153,6 +153,10 @@ func kvCacheTypeFromStr(s string) C.enum_ggml_type {
+ 		return C.GGML_TYPE_Q8_0
+ 	case "q4_0":
+ 		return C.GGML_TYPE_Q4_0
++	case "turbo3":
++		return C.GGML_TYPE_TBQ3_0
++	case "turbo4":
++		return C.GGML_TYPE_TBQ4_0
+ 	default:
+ 		return C.GGML_TYPE_F16
+ 	}
+diff --git a/llm/server.go b/llm/server.go
+index 0b907e0..46baa4a 100644
+--- a/llm/server.go
++++ b/llm/server.go
+@@ -236,7 +236,15 @@ func NewLlamaServer(systemInfo ml.SystemInfo, gpus []ml.DeviceInfo, modelPath st
+ 
+ 		if kvct != "" {
+ 			if f.KVCacheTypeIsQuantized(kvct) {
+-				if flashAttention != ml.FlashAttentionEnabled {
++				// TurboQuant types (turbo3/turbo4) work with the fallback
++				// attention path even without flash attention.
++				if strings.HasPrefix(kvct, "turbo") {
++					if f.SupportsKVCacheType(kvct) {
++						loadRequest.KvCacheType = kvct
++					} else {
++						slog.Warn("unsupported OLLAMA_KV_CACHE_TYPE", "type", kvct)
++					}
++				} else if flashAttention != ml.FlashAttentionEnabled {
+ 					slog.Warn("OLLAMA_FLASH_ATTENTION must be enabled to use a quantized OLLAMA_KV_CACHE_TYPE", "type", kvct)
+ 					loadRequest.KvCacheType = ""
+ 				} else if f.SupportsKVCacheType(kvct) {

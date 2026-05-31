@@ -1,0 +1,177 @@
+diff --git a/ml/backend/ggml/ggml/src/ggml-common.h b/ml/backend/ggml/ggml/src/ggml-common.h
+index 93ab7ea..86bbac3 100644
+--- a/ml/backend/ggml/ggml/src/ggml-common.h
++++ b/ml/backend/ggml/ggml/src/ggml-common.h
+@@ -255,6 +255,172 @@ typedef struct {
+ } block_tq2_0;
+ static_assert(sizeof(block_tq2_0) == sizeof(ggml_half) + QK_K / 4, "wrong tq2_0 block size/padding");
+ 
++//
++// TurboQuant block types (KV cache quantization)
++//
++// _0: blck_size=256 (head_dim=256)
++// _1: blck_size=128 (head_dim=128)
++// _2: blck_size=64  (head_dim=64)
++// _3: blck_size=64  (cross-head double WHT, D=64)
++// _4: blck_size=576 (MLA: 256+256+64 sub-blocks)
++//
++
++#define TBQ_K128 128
++#define TBQ_K64 64
++#define TBQ_K576 576
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[QK_K*3/8];
++} block_tbq3_0;
++static_assert(sizeof(block_tbq3_0) == sizeof(ggml_half) + QK_K*3/8, "wrong tbq3_0 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[QK_K/2];
++} block_tbq4_0;
++static_assert(sizeof(block_tbq4_0) == sizeof(ggml_half) + QK_K/2, "wrong tbq4_0 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    ggml_half d_qjl;
++    uint8_t qs[QK_K/4];
++    uint8_t qjl[QK_K/8];
++} block_tbqp3_0;
++static_assert(sizeof(block_tbqp3_0) == 2*sizeof(ggml_half) + QK_K/4 + QK_K/8, "wrong tbqp3_0 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    ggml_half d_qjl;
++    uint8_t qs[QK_K*3/8];
++    uint8_t qjl[QK_K/8];
++} block_tbqp4_0;
++static_assert(sizeof(block_tbqp4_0) == 2*sizeof(ggml_half) + QK_K*3/8 + QK_K/8, "wrong tbqp4_0 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[TBQ_K128*3/8];
++} block_tbq3_1;
++static_assert(sizeof(block_tbq3_1) == sizeof(ggml_half) + TBQ_K128*3/8, "wrong tbq3_1 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[TBQ_K128/2];
++} block_tbq4_1;
++static_assert(sizeof(block_tbq4_1) == sizeof(ggml_half) + TBQ_K128/2, "wrong tbq4_1 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    ggml_half d_qjl;
++    uint8_t qs[TBQ_K128/4];
++    uint8_t qjl[TBQ_K128/8];
++} block_tbqp3_1;
++static_assert(sizeof(block_tbqp3_1) == 2*sizeof(ggml_half) + TBQ_K128/4 + TBQ_K128/8, "wrong tbqp3_1 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    ggml_half d_qjl;
++    uint8_t qs[TBQ_K128*3/8];
++    uint8_t qjl[TBQ_K128/8];
++} block_tbqp4_1;
++static_assert(sizeof(block_tbqp4_1) == 2*sizeof(ggml_half) + TBQ_K128*3/8 + TBQ_K128/8, "wrong tbqp4_1 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    ggml_half d_qjl;
++    uint8_t qs[TBQ_K64/4];
++    uint8_t qjl[TBQ_K64/8];
++} block_tbqp3_2;
++static_assert(sizeof(block_tbqp3_2) == 2*sizeof(ggml_half) + TBQ_K64/4 + TBQ_K64/8, "wrong tbqp3_2 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[TBQ_K64*3/8];
++} block_tbq3_2;
++static_assert(sizeof(block_tbq3_2) == sizeof(ggml_half) + TBQ_K64*3/8, "wrong tbq3_2 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[TBQ_K64/2];
++} block_tbq4_2;
++static_assert(sizeof(block_tbq4_2) == sizeof(ggml_half) + TBQ_K64/2, "wrong tbq4_2 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    ggml_half d_qjl;
++    uint8_t qs[TBQ_K64*3/8];
++    uint8_t qjl[TBQ_K64/8];
++} block_tbqp4_2;
++static_assert(sizeof(block_tbqp4_2) == 2*sizeof(ggml_half) + TBQ_K64*3/8 + TBQ_K64/8, "wrong tbqp4_2 block size/padding");
++
++// Cross-head WHT variants (_3) use same layout as _2
++typedef block_tbq3_2  block_tbq3_3;
++typedef block_tbq4_2  block_tbq4_3;
++typedef block_tbqp3_2 block_tbqp3_3;
++typedef block_tbqp4_2 block_tbqp4_3;
++
++// AMX K-side: Hybrid WHT (FA) + Polar (TriAttention)
++typedef struct {
++    ggml_half d_wht;
++    uint8_t   qs  [TBQ_K128*3/8];
++    ggml_half d_r;
++    uint8_t   qr  [TBQ_K128*3/16];
++    uint8_t   qphi[TBQ_K128/4];
++} block_amx3_1;
++static_assert(sizeof(block_amx3_1) == 2*sizeof(ggml_half) + TBQ_K128*3/8 + TBQ_K128*3/16 + TBQ_K128/4, "wrong amx3_1 block size/padding");
++
++typedef struct {
++    ggml_half d;
++    uint8_t qs[TBQ_K128*3/8];
++} block_amxv3_1;
++static_assert(sizeof(block_amxv3_1) == sizeof(ggml_half) + TBQ_K128*3/8, "wrong amxv3_1 block size/padding");
++
++// MLA variants (head_dim=576, sub-blocks 256+256+64)
++typedef struct {
++    ggml_half d1;
++    uint8_t qs1[QK_K*3/8];
++    ggml_half d2;
++    uint8_t qs2[QK_K*3/8];
++    ggml_half rope[TBQ_K64];
++} block_tbq3_4;
++static_assert(sizeof(block_tbq3_4) == 2*sizeof(ggml_half) + 2*(QK_K*3/8) + TBQ_K64*sizeof(ggml_half), "wrong tbq3_4 block size/padding");
++
++typedef struct {
++    ggml_half d1;
++    uint8_t qs1[QK_K/2];
++    ggml_half d2;
++    uint8_t qs2[QK_K/2];
++    ggml_half rope[TBQ_K64];
++} block_tbq4_4;
++static_assert(sizeof(block_tbq4_4) == 2*sizeof(ggml_half) + 2*(QK_K/2) + TBQ_K64*sizeof(ggml_half), "wrong tbq4_4 block size/padding");
++
++// 3-bit prod (LM+QJL) with 3 sub-blocks and RoPE prefix in f16
++typedef struct {
++    ggml_half d1;
++    ggml_half d1_qjl;
++    uint8_t qs1[QK_K/4];
++    uint8_t qjl1[QK_K/8];
++    ggml_half d2;
++    ggml_half d2_qjl;
++    uint8_t qs2[QK_K/4];
++    uint8_t qjl2[QK_K/8];
++    ggml_half rope[TBQ_K64];
++} block_tbqp3_4;
++static_assert(sizeof(block_tbqp3_4) == 4*sizeof(ggml_half) + 2*(QK_K/4 + QK_K/8) + TBQ_K64*sizeof(ggml_half), "wrong tbqp3_4 block size/padding");
++
++typedef struct {
++    ggml_half d1;
++    ggml_half d1_qjl;
++    uint8_t qs1[QK_K*3/8];
++    uint8_t qjl1[QK_K/8];
++    ggml_half d2;
++    ggml_half d2_qjl;
++    uint8_t qs2[QK_K*3/8];
++    uint8_t qjl2[QK_K/8];
++    ggml_half rope[TBQ_K64];
++} block_tbqp4_4;
++static_assert(sizeof(block_tbqp4_4) == 4*sizeof(ggml_half) + 2*(QK_K*3/8 + QK_K/8) + TBQ_K64*sizeof(ggml_half), "wrong tbqp4_4 block size/padding");
++
+ //
+ // Super-block quantization structures
+ //

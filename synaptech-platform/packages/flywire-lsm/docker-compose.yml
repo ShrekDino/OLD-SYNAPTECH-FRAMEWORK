@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  flywire-lsm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flywire-connectome
+    ports:
+      - "8000:8000"
+    volumes:
+      - data_volume:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/topology')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  data_volume:

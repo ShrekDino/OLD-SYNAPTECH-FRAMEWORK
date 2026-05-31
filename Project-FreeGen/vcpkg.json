@@ -1,0 +1,31 @@
+{
+  "name": "freegen",
+  "version": "0.1.0",
+  "description": "Open-source screen capture upscaling and frame generation tool",
+  "homepage": "https://github.com/ShrekDino/Project-FreeGen",
+  "license": "Apache-2.0",
+  "dependencies": [
+    "fmt",
+    "spdlog",
+    "cli11",
+    "nlohmann-json",
+    "glm",
+    {
+      "name": "imgui",
+      "features": ["docking-experimental", "sdl2-binding", "vulkan-binding"]
+    },
+    "vulkan-headers",
+    "vulkan-loader",
+    "sdl2",
+    {
+      "name": "gtest",
+      "platform": "!windows"
+    }
+  ],
+  "overrides": [
+    {
+      "name": "imgui",
+      "version": "1.91.0"
+    }
+  ]
+}

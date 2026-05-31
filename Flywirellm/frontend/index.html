@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlyWire Connectome Live Viewer</title>
+  
+  <!-- Premium Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    #chat-log::-webkit-scrollbar,
+    #sessions-list::-webkit-scrollbar {
+      width: 4px;
+    }
+    #chat-log::-webkit-scrollbar-track,
+    #sessions-list::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.2);
+    }
+    #chat-log::-webkit-scrollbar-thumb,
+    #sessions-list::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.15);
+      border-radius: 2px;
+    }
+    #chat-log::-webkit-scrollbar-thumb:hover,
+    #sessions-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.3);
+    }
+
+    .streaming-cursor::after {
+      content: '\u2588';
+      color: #38bdf8;
+      animation: blink 0.6s step-end infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* Glassmorphism styling */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-color: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex h-screen w-screen overflow-hidden">
+
+  <!-- ============ Left Panel: History & Learning Stats ============ -->
+  <div class="w-80 shrink-0 border-r border-slate-900 glass-panel flex flex-col p-4 space-y-5 overflow-hidden z-10">
+    
+    <!-- Title / Branding -->
+    <div class="flex items-center gap-3 pb-3 border-b border-slate-900">
+      <div class="w-4 h-4 rounded-full bg-cyan-500 shadow-[0_0_12px_#06b6d4] animate-pulse"></div>
+      <div>
+        <h1 class="text-sm font-bold tracking-wider text-slate-200 uppercase">FlyWire Connectome</h1>
+        <p class="text-[9px] text-cyan-400 font-mono tracking-widest uppercase">LSM Bios-Engine</p>
+      </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-slate-950/60 border border-slate-900/60 rounded-lg p-3 flex flex-col">
+        <span class="text-[9px] text-slate-500 font-bold tracking-wider uppercase">LSM Accuracy</span>
+        <span id="accuracy-display" class="text-xl font-bold font-mono text-cyan-400 mt-0.5">—</span>
+      </div>
+      <div class="bg-slate-950/60 border border-slate-900/60 rounded-lg p-3 flex flex-col">
+        <span class="text-[9px] text-slate-500 font-bold tracking-wider uppercase">Total Runs</span>
+        <span id="runs-display" class="text-xl font-bold font-mono text-purple-400 mt-0.5">0</span>
+      </div>
+    </div>
+
+    <!-- Learning Curve Graph -->
+    <div class="bg-slate-950/40 border border-slate-900/40 rounded-lg p-3 space-y-2 flex flex-col min-h-0 shrink-0">
+      <span class="text-[9px] text-slate-400 font-bold tracking-wider uppercase font-mono">Learning Curve</span>
+      <div class="h-28 w-full relative">
+        <canvas id="learning-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Historical Sessions scrollable list -->
+    <div class="flex-1 flex flex-col min-h-0 space-y-2">
+      <span class="text-[9px] text-slate-400 font-bold tracking-wider uppercase font-mono">Previous Sessions</span>
+      <div id="sessions-list" class="flex-1 overflow-y-auto space-y-2 pr-1">
+        <div class="text-center text-xs text-slate-600 font-mono py-8">
+          No previous sessions logged
+        </div>
+      </div>
+    </div>
+
+    <!-- Clear History Button -->
+    <button id="clear-history-btn" 
+            class="w-full py-2 bg-red-950/30 hover:bg-red-950/60 border border-red-900/30 hover:border-red-800/60 rounded-lg text-[10px] font-mono font-bold tracking-wider text-red-400 transition-all flex items-center justify-center gap-2">
+      Clear History & Reset
+    </button>
+  </div>
+
+  <!-- ============ Center Panel: Terminal Chat ============ -->
+  <div class="w-[420px] shrink-0 border-r border-slate-900 flex flex-col bg-slate-950/80 z-10">
+
+    <!-- Terminal Header -->
+    <div class="flex items-center justify-between px-4 py-3.5 border-b border-slate-900 bg-slate-900/20">
+      <div class="flex items-center gap-2.5">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span class="text-xs font-bold font-mono uppercase tracking-wider text-slate-300">Terminal Output</span>
+      </div>
+      <div class="text-[9px] font-mono text-slate-500 bg-slate-950 border border-slate-900/80 px-2 py-0.5 rounded">
+        SYS.LSM_ACTIVE
+      </div>
+    </div>
+
+    <!-- Chat Log -->
+    <div id="chat-log" class="flex-1 overflow-y-auto p-4 text-xs font-mono leading-relaxed space-y-4">
+      <div class="text-slate-600 text-[10px] border-b border-slate-900 pb-3">
+        ╔══ Connectome Terminal v2.0 ══╗<br>
+        ║  Expanded vocabulary online   ║<br>
+        ║  Input below to distill context║<br>
+        ╚══════════════════════════════╝
+      </div>
+    </div>
+
+    <!-- Controls Input Box -->
+    <div class="p-3.5 border-t border-slate-900 bg-slate-900/10 space-y-3">
+      
+      <!-- Prompt input -->
+      <div class="flex gap-2">
+        <input id="chat-input" type="text"
+               class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono
+                      text-slate-100 placeholder-slate-700 focus:outline-none focus:border-cyan-800/80 focus:ring-1 focus:ring-cyan-800/30"
+               placeholder="Speak to the LSM…">
+        <button id="chat-send"
+                class="px-4 py-2 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/40 disabled:bg-slate-950
+                       disabled:text-slate-700 disabled:border-slate-900 rounded-lg text-xs font-bold text-cyan-400 transition-all"
+                disabled>
+          Send
+        </button>
+      </div>
+
+      <!-- Distill knowledge -->
+      <div class="flex flex-col gap-1.5 bg-slate-950/40 border border-slate-900/60 p-3 rounded-lg">
+        <span class="text-[9px] text-slate-500 font-bold tracking-wider uppercase font-sans">Distill New Knowledge (LSM Training)</span>
+        <div class="flex gap-2 items-end">
+          <textarea id="distill-input"
+                    class="flex-1 bg-slate-950 border border-slate-900 rounded p-2 text-[10px] font-mono
+                           text-slate-300 placeholder-slate-700 resize-none focus:outline-none focus:border-amber-800/80"
+                    rows="2"
+                    placeholder="Paste training text here (supports full uppercase, numbers, basic punctuation)…"></textarea>
+          <button id="train-btn"
+                  class="px-4 py-2.5 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-800/40 disabled:bg-slate-950
+                         disabled:text-slate-700 disabled:border-slate-900 rounded-lg text-xs font-bold text-amber-400 transition-all"
+                  disabled>
+            Train
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Right Panel: Brain Visualizer ============ -->
+  <div class="flex-1 relative bg-slate-950 overflow-hidden">
+    <canvas id="brain-canvas" class="absolute inset-0 w-full h-full"></canvas>
+
+    <!-- Overlay Telemetry panels (HUD) -->
+    <!-- Top-Left HUD: Module specs -->
+    <div class="absolute top-4 left-4 p-3 bg-slate-950/85 border border-slate-900 rounded-lg backdrop-blur-md font-mono text-[9px] text-slate-500 space-y-1.5 pointer-events-none select-none z-20">
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+        <span class="text-slate-300 font-semibold">Module A (Sensory):</span>
+        <span>200 nodes (α=0.8, ρ=0.7)</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+        <span class="text-slate-300 font-semibold">Module B (Central):</span>
+        <span>300 nodes (α=0.05, ρ=0.98)</span>
+      </div>
+    </div>
+
+    <!-- Top-Right HUD: Simulation Stats -->
+    <div class="absolute top-4 right-4 p-3 bg-slate-950/85 border border-slate-900 rounded-lg backdrop-blur-md font-mono text-[9px] text-slate-500 space-y-1 pointer-events-none select-none z-20">
+      <div>Simulation: <span class="text-emerald-400 font-bold">ONLINE</span></div>
+      <div>3D View: <span class="text-cyan-400">Auto-Rotate</span></div>
+      <div>Active Pulses: <span id="hud-pulses" class="text-amber-400 font-bold">0</span></div>
+    </div>
+  </div>
+
+  <!-- ============ Scripting Block ============ -->
+  <script>
+  // ==========================================================================
+  //  Global State
+  // ==========================================================================
+
+  let nodes = null;
+  let edges = null;
+  let activations = new Float32Array(500);
+  let streaming = false;
+  let abortController = null;
+  let pulses = [];
+  let tokenQueue = [];
+  let processing = false;
+  let streamEnded = false;
+  let animFrame = null;
+  let rotationAngle = 0;
+  let chartInstance = null;
+
+  const CAMERA_DISTANCE = 400;
+  const ROTATION_SPEED = 0.003;
+  const TILT_ANGLE = 0.12;
+
+  const canvas = document.getElementById('brain-canvas');
+  const ctx = canvas.getContext('2d');
+  const chatLog = document.getElementById('chat-log');
+  const chatInput = document.getElementById('chat-input');
+  const chatSend = document.getElementById('chat-send');
+  const distillInput = document.getElementById('distill-input');
+  const trainBtn = document.getElementById('train-btn');
+  const accuracyDisplay = document.getElementById('accuracy-display');
+  const runsDisplay = document.getElementById('runs-display');
+  const hudPulsesDisplay = document.getElementById('hud-pulses');
+  const sessionsList = document.getElementById('sessions-list');
+  const clearHistoryBtn = document.getElementById('clear-history-btn');
+
+  // ==========================================================================
+  //  Canvas Sizing with ResizeObserver
+  // ==========================================================================
+
+  function resizeCanvas() {
+    const parent = canvas.parentElement;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+  window.addEventListener('resize', resizeCanvas);
+
+  // ==========================================================================
+  //  RAF Render Loop — continuous canvas animation
+  // ==========================================================================
+
+  function startRenderLoop() {
+    function loop(now) {
+      drawBrain(now);
+      animFrame = requestAnimationFrame(loop);
+    }
+    if (animFrame) cancelAnimationFrame(animFrame);
+    animFrame = requestAnimationFrame(loop);
+  }
+
+  // ==========================================================================
+  //  3D Projection — perspective projection with Y-axis rotation + X tilt
+  // ==========================================================================
+
+  function project3D(node) {
+    const cosY = Math.cos(rotationAngle), sinY = Math.sin(rotationAngle);
+    const cosX = Math.cos(TILT_ANGLE), sinX = Math.sin(TILT_ANGLE);
+    let rx = node.x * cosY - node.z * sinY;
+    let rz = node.x * sinY + node.z * cosY;
+    let ry = node.y;
+    let ty = ry * cosX - rz * sinX;
+    let tz = ry * sinX + rz * cosX;
+    let tx = rx;
+    const scale = CAMERA_DISTANCE / (CAMERA_DISTANCE + tz);
+    return {
+      sx: canvas.width / 2 + tx * scale,
+      sy: canvas.height / 2 + ty * scale,
+      z: tz,
+      scale: scale,
+    };
+  }
+
+  // ==========================================================================
+  //  Pulse Management — traveling neon dots on active connections
+  // ==========================================================================
+
+  function triggerPulses(activations) {
+    const threshold = 0.25;
+    const now = performance.now();
+    for (let i = 0; i < activations.length; i++) {
+      if (Math.abs(activations[i]) <= threshold) continue;
+      for (const e of edges) {
+        if (e.source !== i) continue;
+        const dup = pulses.find(p => p.source === i && p.target === e.target
+                                    && (now - p.startTime) < p.duration * 0.4);
+        if (dup) continue;
+        pulses.push({
+          source: i,
+          target: e.target,
+          startTime: now,
+          duration: 350 + 200 * Math.random(),
+          progress: 0,
+        });
+      }
+    }
+    hudPulsesDisplay.textContent = pulses.length;
+  }
+
+  function updatePulses(now) {
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      const elapsed = now - pulses[i].startTime;
+      if (elapsed >= pulses[i].duration) { pulses.splice(i, 1); continue; }
+      pulses[i].progress = elapsed / pulses[i].duration;
+    }
+    hudPulsesDisplay.textContent = pulses.length;
+  }
+
+  // ==========================================================================
+  //  Visual Rendering of Brain Network
+  // ==========================================================================
+
+  function drawBrain(now) {
+    if (!nodes || !edges || nodes.length === 0) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+    if (W === 0 || H === 0) return;
+
+    // Advance auto-rotation
+    rotationAngle += ROTATION_SPEED;
+
+    // Background fill
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, W, H);
+
+    // Faint 3D context grid base for depth
+    drawGridOverlay(W, H);
+
+    // Project nodes to 2D screen positions
+    const proj = nodes.map(n => project3D(n));
+
+    // Get max weight for scaling edge opacity
+    const maxAbsW = Math.max(...edges.map(e => Math.abs(e.weight)), 1e-10);
+
+    // Sort edges by average depth (Avg Z) so back lines are drawn first
+    const depthEdges = edges.map(e => ({
+      srcP: proj[e.source],
+      tgtP: proj[e.target],
+      avgZ: (proj[e.source].z + proj[e.target].z) / 2,
+      rel: Math.abs(e.weight) / maxAbsW,
+      srcAct: activations[e.source] || 0,
+      source: e.source,
+      target: e.target,
+    }));
+    depthEdges.sort((a, b) => a.avgZ - b.avgZ);
+
+    // Draw connection lines
+    for (const e of depthEdges) {
+      const depthFade = Math.max(0.1, 1 - (e.avgZ + 200) / 400);
+      let alpha = (0.02 + 0.32 * e.rel) * depthFade;
+      
+      // Light up pathways of active source nodes
+      if (Math.abs(e.srcAct) > 0.25) {
+        alpha = Math.min(0.9, alpha * (1 + Math.abs(e.srcAct) * 1.5));
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(e.srcP.sx, e.srcP.sy);
+      ctx.lineTo(e.tgtP.sx, e.tgtP.sy);
+      
+      // Cyan-blue connections for sensory nodes, deep violet for memory nodes
+      const color = e.source < 200 ? `rgba(6, 182, 212, ${alpha})` : `rgba(139, 92, 246, ${alpha})`;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = (0.4 + 1.2 * e.rel) * depthFade;
+      ctx.stroke();
+    }
+
+    // Draw moving neon pulse packets
+    if (now) updatePulses(now);
+    for (const p of pulses) {
+      const srcN = nodes[p.source];
+      const tgtN = nodes[p.target];
+      if (!srcN || !tgtN) continue;
+
+      const px3d = srcN.x + (tgtN.x - srcN.x) * p.progress;
+      const py3d = srcN.y + (tgtN.y - srcN.y) * p.progress;
+      const pz3d = srcN.z + (tgtN.z - srcN.z) * p.progress;
+      const pp = project3D({x: px3d, y: py3d, z: pz3d});
+
+      const depthFade = Math.max(0.15, 1 - (pp.z + 200) / 400);
+      const bright = (p.progress < 0.05 ? 1 : Math.max(0, 1 - p.progress * 1.25)) * depthFade;
+
+      const glow = ctx.createRadialGradient(pp.sx, pp.sy, 0, pp.sx, pp.sy, 8 * pp.scale);
+      glow.addColorStop(0, `rgba(253, 224, 71, ${0.45 * bright})`);
+      glow.addColorStop(1, 'rgba(253, 224, 71, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(pp.sx, pp.sy, 8 * pp.scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255, 255, 255, ${bright})`;
+      ctx.beginPath();
+      ctx.arc(pp.sx, pp.sy, 2.0 * pp.scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Sort nodes by depth for rendering back-to-front
+    const nodeOrder = nodes
+      .map((n, i) => ({ ...n, proj: proj[i], idx: i }))
+      .sort((a, b) => a.proj.z - b.proj.z);
+
+    for (const n of nodeOrder) {
+      const { sx, sy, z, scale } = n.proj;
+
+      const act = activations[n.id] || 0;
+      const normAct = Math.tanh(act);
+      const absAct = Math.abs(normAct);
+
+      const depthFade = Math.max(0.22, 1 - (z + 200) / 400);
+      const isA = n.region === 'Sensory Neuropil';
+      const hue = isA ? 185 : 270;
+      const baseSat = isA ? 85 : 75;
+
+      // Glow halo for active nodes
+      if (absAct > 0.08) {
+        const glowR = (2.5 + 12 * absAct) * scale * depthFade;
+        const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+        grad.addColorStop(0, `hsla(${hue + 15 * absAct}, 95%, 65%, ${0.5 * absAct * depthFade})`);
+        grad.addColorStop(0.3, `hsla(${hue + 15 * absAct}, 95%, 55%, ${0.2 * absAct * depthFade})`);
+        grad.addColorStop(1, `hsla(${hue}, 95%, 45%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sx, sy, glowR, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+
+      // Dynamic Node dot size and color lightness
+      const radius = (1.2 + 2.6 * absAct) * scale * depthFade;
+      const lightness = 40 + 45 * absAct;
+      const sat = baseSat + 15 * absAct;
+
+      const dotGrad = ctx.createRadialGradient(sx - 0.8 * scale, sy - 0.8 * scale, 0, sx, sy, radius);
+      dotGrad.addColorStop(0, `hsl(${hue + 20 * absAct}, ${sat}%, ${Math.min(95, lightness + 25)}%)`);
+      dotGrad.addColorStop(1, `hsl(${hue}, ${sat}%, ${lightness * depthFade}%)`);
+      ctx.fillStyle = dotGrad;
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+
+  // Draw a very subtle biotech mesh background grid
+  function drawGridOverlay(W, H) {
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.4)';
+    ctx.lineWidth = 0.5;
+    const gridSpacing = 40;
+    
+    // Vertical lines
+    for (let x = 0; x < W; x += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    
+    // Horizontal lines
+    for (let y = 0; y < H; y += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+  }
+
+  // ==========================================================================
+  //  Load Topology & Initialise Server Connection
+  // ==========================================================================
+
+  async function loadTopology() {
+    try {
+      const resp = await fetch('/topology');
+      const data = await resp.json();
+      nodes = data.nodes;
+      edges = data.edges;
+      
+      chatSend.disabled = false;
+      trainBtn.disabled = false;
+      
+      // Fetch stored history to set up the dashboard
+      await loadHistory();
+      
+      // Start continuous RAF visual loop
+      startRenderLoop();
+    } catch (err) {
+      console.error('Failed to load topology:', err);
+      appendLine('[ERROR] Could not fetch topology from server', 'text-red-500');
+    }
+  }
+
+  // ==========================================================================
+  //  Load Persistent History & Render UI Widgets
+  // ==========================================================================
+
+  async function loadHistory() {
+    try {
+      const resp = await fetch('/history');
+      if (!resp.ok) return;
+      const history = await resp.json();
+
+      // Render statistics
+      const learningHistory = history.learning_history || [];
+      const chatHistory = history.chats || [];
+
+      // Render Accuracy and Run numbers
+      if (learningHistory.length > 0) {
+        const latestAcc = learningHistory[learningHistory.length - 1].accuracy;
+        accuracyDisplay.textContent = (latestAcc * 100).toFixed(2) + '%';
+        runsDisplay.textContent = learningHistory.length;
+      } else {
+        accuracyDisplay.textContent = '—';
+        runsDisplay.textContent = '0';
+      }
+
+      // Update/Create Line Chart
+      renderChart(learningHistory);
+
+      // Populate Session List sidebar
+      sessionsList.innerHTML = '';
+      if (chatHistory.length === 0) {
+        sessionsList.innerHTML = `
+          <div class="text-center text-[10px] text-slate-700 font-mono py-8 bg-slate-950/20 border border-slate-900/40 rounded-lg">
+            No session history recorded
+          </div>`;
+      } else {
+        // Show newest sessions at the top
+        [...chatHistory].reverse().forEach(session => {
+          const item = document.createElement('div');
+          item.className = 'bg-slate-950/40 hover:bg-slate-900/40 border border-slate-900/60 hover:border-slate-800/80 rounded-lg p-2.5 transition-all cursor-pointer space-y-1.5';
+          
+          const dt = new Date(session.timestamp.replace(/-/g, '/'));
+          const timeStr = isNaN(dt.getTime()) ? session.timestamp : dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          
+          item.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="text-[9px] font-mono text-slate-500">${timeStr}</span>
+              <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-900/30">
+                ${(session.accuracy_at_time * 100).toFixed(0)}%
+              </span>
+            </div>
+            <p class="text-[10px] font-mono text-slate-300 truncate font-medium">
+              &gt; ${escapeHtml(session.prompt)}
+            </p>
+          `;
+          
+          item.addEventListener('click', () => {
+            loadHistoricalChat(session);
+          });
+          
+          sessionsList.appendChild(item);
+        });
+      }
+
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    }
+  }
+
+  // ==========================================================================
+  //  Chart.js Performance Line Chart
+  // ==========================================================================
+
+  function renderChart(learningHistory) {
+    const canvasElement = document.getElementById('learning-chart');
+    if (!canvasElement) return;
+
+    const dataPoints = learningHistory.map(h => h.accuracy * 100);
+    const labels = learningHistory.map((h, i) => i === 0 ? 'Base' : `#${i}`);
+
+    // If chart already exists, update data dynamically
+    if (chartInstance) {
+      chartInstance.data.labels = labels;
+      chartInstance.data.datasets[0].data = dataPoints;
+      chartInstance.update();
+      return;
+    }
+
+    const ctxChart = canvasElement.getContext('2d');
+    chartInstance = new Chart(ctxChart, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Accuracy %',
+          data: dataPoints,
+          borderColor: '#06b6d4',
+          borderWidth: 1.5,
+          backgroundColor: 'rgba(6, 182, 212, 0.05)',
+          fill: true,
+          tension: 0.35,
+          pointBackgroundColor: '#06b6d4',
+          pointBorderColor: '#0f172a',
+          pointHoverRadius: 5,
+          pointRadius: 2.5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255,255,255,0.02)', drawTicks: false },
+            ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 8 } }
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.02)', drawTicks: false },
+            ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 8 } },
+            min: 0,
+            max: 100
+          }
+        }
+      }
+    });
+  }
+
+  // ==========================================================================
+  //  SSE Chat Endpoint consumer
+  // ==========================================================================
+
+  async function sendChat(prompt) {
+    if (streaming) return;
+    streaming = true;
+    streamEnded = false;
+    chatSend.disabled = true;
+    chatInput.disabled = true;
+
+    // Append user input
+    appendLine('> ' + prompt, 'text-yellow-400 font-bold');
+
+    // Create container for incoming tokens
+    const respLine = document.createElement('div');
+    respLine.className = 'line text-emerald-400 font-semibold streaming-cursor pb-2 border-b border-slate-900/60 mb-2';
+    respLine.textContent = '';
+    chatLog.appendChild(respLine);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    abortController = new AbortController();
+
+    try {
+      const resp = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+        signal: abortController.signal,
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        appendLine('[ERROR] ' + (err.error || resp.statusText), 'text-red-500');
+        streaming = false;
+        chatSend.disabled = false;
+        chatInput.disabled = false;
+        abortController = null;
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop(); // save partial line for next execution
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+
+          const payload = trimmed.slice(6).trim();
+          if (payload === '[DONE]') {
+            streamEnded = true;
+            continue;
+          }
+
+          let data;
+          try {
+            data = JSON.parse(payload);
+          } catch {
+            continue;
+          }
+
+          // Buffer and rate-limit activation display so neon paths are visually distinct
+          tokenQueue.push(data);
+          if (!processing) processQueue(respLine);
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        respLine.classList.remove('streaming-cursor');
+      } else {
+        appendLine('[ERROR] Stream failed: ' + err.message, 'text-red-500');
+      }
+    } finally {
+      // Drain queue
+      while (tokenQueue.length > 0 || processing) {
+        await new Promise(r => setTimeout(r, 10));
+      }
+      streaming = false;
+      chatSend.disabled = false;
+      chatInput.disabled = false;
+      chatInput.focus();
+      abortController = null;
+      
+      // Update persistent chats in sidebar once completed
+      await loadHistory();
+    }
+  }
+
+  async function processQueue(respLine) {
+    if (processing) return;
+    processing = true;
+    while (tokenQueue.length > 0) {
+      const data = tokenQueue.shift();
+      respLine.textContent += data.token;
+      if (data.activations && data.activations.length === 500) {
+        activations = new Float32Array(data.activations);
+        triggerPulses(activations);
+      }
+      chatLog.scrollTop = chatLog.scrollHeight;
+      // 40ms visual delay gives a gorgeous wave velocity on the canvas
+      await new Promise(r => setTimeout(r, 40));
+    }
+    if (streamEnded) respLine.classList.remove('streaming-cursor');
+    processing = false;
+  }
+
+  // ==========================================================================
+  //  Train Endpoint Callback
+  // ==========================================================================
+
+  async function train(text) {
+    trainBtn.disabled = true;
+    trainBtn.textContent = 'Distilling…';
+
+    try {
+      const resp = await fetch('/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        const pct = (data.accuracy * 100).toFixed(2);
+        appendLine(`[TRAIN] Successful calibration accuracy: ${pct}%`, 'text-cyan-400 font-bold');
+        
+        // Refresh sidebar, stats, and graph
+        await loadHistory();
+      } else {
+        appendLine('[ERROR] ' + (data.error || 'Train failed'), 'text-red-500');
+      }
+    } catch (err) {
+      appendLine('[ERROR] ' + err.message, 'text-red-500');
+    } finally {
+      trainBtn.textContent = 'Train';
+      trainBtn.disabled = false;
+      distillInput.value = '';
+    }
+  }
+
+  // ==========================================================================
+  //  Sidebar / History Actions
+  // ==========================================================================
+
+  function loadHistoricalChat(session) {
+    // Populate chat window immediately
+    chatLog.innerHTML = `
+      <div class="text-slate-600 text-[10px] border-b border-slate-900 pb-3">
+        ╔══ Connectome Terminal v2.0 ══╗<br>
+        ║  Viewing Historical Session   ║<br>
+        ║  Accuracy was ${ (session.accuracy_at_time * 100).toFixed(1) }%          ║<br>
+        ╚══════════════════════════════╝
+      </div>
+    `;
+    
+    appendLine('> ' + session.prompt, 'text-yellow-400 font-bold');
+    
+    const respLine = document.createElement('div');
+    respLine.className = 'line text-emerald-400 font-semibold pb-2 border-b border-slate-900/60 mb-2';
+    respLine.textContent = session.response;
+    chatLog.appendChild(respLine);
+    
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  async function clearHistory() {
+    if (!confirm('Are you sure you want to clear your entire chat history and reset statistics?')) return;
+    clearHistoryBtn.disabled = true;
+    try {
+      const resp = await fetch('/history/clear', { method: 'POST' });
+      if (resp.ok) {
+        chatLog.innerHTML = `
+          <div class="text-slate-600 text-[10px] border-b border-slate-900 pb-3">
+            ╔══ Connectome Terminal v2.0 ══╗<br>
+            ║  Terminal History Reset Done ║<br>
+            ╚══════════════════════════════╝
+          </div>
+        `;
+        await loadHistory();
+      } else {
+        appendLine('[ERROR] Clear history endpoint failed', 'text-red-500');
+      }
+    } catch (err) {
+      appendLine('[ERROR] Clear history request error: ' + err.message, 'text-red-500');
+    } finally {
+      clearHistoryBtn.disabled = false;
+    }
+  }
+
+  // ==========================================================================
+  //  Helper Utilities
+  // ==========================================================================
+
+  function appendLine(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'line ' + (cls || '');
+    div.textContent = text;
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // ==========================================================================
+  //  Event Bindings
+  // ==========================================================================
+
+  chatSend.addEventListener('click', () => {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    chatInput.value = '';
+    sendChat(text);
+  });
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !streaming) {
+      e.preventDefault();
+      chatSend.click();
+    }
+  });
+
+  trainBtn.addEventListener('click', () => {
+    const text = distillInput.value.trim();
+    if (!text) return;
+    train(text);
+  });
+
+  clearHistoryBtn.addEventListener('click', clearHistory);
+
+  // ==========================================================================
+  //  Init
+  // ==========================================================================
+
+  loadTopology();
+  </script>
+
+</body>
+</html>

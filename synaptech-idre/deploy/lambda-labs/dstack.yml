@@ -1,0 +1,52 @@
+# SynapTech IDRE — dstack Service Configuration for Lambda Labs
+type: service
+name: synaptech-idre
+
+image: synaptech/idre-backend:latest
+
+env:
+  - PINECONE_API_KEY
+  - DEEPSEEK_API_KEY
+  - LAVA_BACKEND=sim
+  - JWT_SECRET
+  - API_KEYS
+  - S3_ENDPOINT=http://minio:9000
+  - S3_BUCKET=synaptech-ip-encrypted
+
+port: 8000
+
+model: synaptech/idre-backend
+
+resources:
+  gpu:
+    count: 1
+  memory: 16GB
+
+spot_policy: auto
+
+scaling:
+  min: 1
+  max: 4
+  idle_duration: 30m
+
+volumes:
+  - name: flywire-data
+    path: /data/flywire
+  - name: layout-data
+    path: /data/layout
+
+retry:
+  on_failure: true
+  max_retries: 3
+
+commands:
+  - uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --workers 1
+
+registry:
+  type: docker
+  username: ${DOCKER_USERNAME}
+  password: ${DOCKER_PASSWORD}
+
+description: |
+  SynapTech IDRE — Integrated Data Representation Engine
+  Real-time 130k-neuron FlyWire connectome visualization with GPU-accelerated CSC matrix operations

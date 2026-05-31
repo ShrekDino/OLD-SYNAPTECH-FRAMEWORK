@@ -1,0 +1,10 @@
+{
+  "anhedonia_mde": {
+    "dopamine_modulation": 0.5,
+    "threshold_offset": 0.2
+  },
+  "manic": {
+    "dopamine_modulation": 1.5,
+    "threshold_offset": -0.1
+  }
+}

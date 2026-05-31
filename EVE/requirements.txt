@@ -1,0 +1,23 @@
+# Core AI & LLM
+ollama
+unsloth
+trl
+transformers
+datasets
+torch
+peft
+
+# Web & Scraping
+duckduckgo-search
+beautifulsoup4
+requests
+
+# Computer Vision & Document Processing
+opencv-python
+PyMuPDF
+
+# Modern GUI (Replacing tkinter)
+PySide6
+QtModernRedux6
+
+# Utilities

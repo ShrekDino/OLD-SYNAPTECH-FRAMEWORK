@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing & coverage
+.pytest_cache/
+.coverage*
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Generated documentation
+*.pdf
+
+# Persisted data (user-generated)
+data/history.json
+
+# Docker
+.docker/
+
+# Ruff
+.ruff_cache/

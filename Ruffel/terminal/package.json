@@ -1,0 +1,20 @@
+{
+  "name": "ruffel-mono-agent",
+  "version": "0.1.0",
+  "description": "Ruffel Mono Agent — Local-first AI coding agent terminal client",
+  "type": "module",
+  "license": "AGPL-3.0",
+  "bin": {
+    "ruffel": "./bin/ruffel"
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "typecheck": "tsc --noEmit",
+    "dev": "node esbuild.js --watch"
+  },
+  "devDependencies": {
+    "@types/node": "20.x",
+    "esbuild": "^0.25.3",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,8 @@
+pipewire
+pipewire-alsa
+pipewire-jack
+pipewire-pulse
+wireplumber
+gst-plugin-pipewire
+libpulse
+sof-firmware

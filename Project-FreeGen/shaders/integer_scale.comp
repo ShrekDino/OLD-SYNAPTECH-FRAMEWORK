@@ -1,0 +1,28 @@
+#version 460
+
+// Integer scaling compute shader - nearest-neighbor integer pixel replication
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba8) uniform readonly image2D uInput;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D uOutput;
+
+layout(push_constant) uniform PushConstants {
+    float scaleFactor;
+    float inputWidth;
+    float inputHeight;
+} pc;
+
+void main() {
+    ivec2 outPos = ivec2(gl_GlobalInvocationID.xy);
+
+    // Compute which input pixel this output pixel maps to
+    ivec2 inPos = ivec2(outPos.x / pc.scaleFactor, outPos.y / pc.scaleFactor);
+
+    if (inPos.x >= int(pc.inputWidth) || inPos.y >= int(pc.inputHeight)) {
+        return;
+    }
+
+    vec4 color = imageLoad(uInput, inPos);
+    imageStore(uOutput, outPos, color);
+}

@@ -1,0 +1,1050 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# ──────────────────────────────────────────────────────────────────────────────
+# openmono — OpenMono.ai CLI
+# Usage: openmono <command>
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Resolve to real script location, handling symlinks
+# Try $0 first (most reliable), fall back to BASH_SOURCE
+OPENMONO_SCRIPT="${0}"
+if [[ ! -f "$OPENMONO_SCRIPT" ]]; then
+    OPENMONO_SCRIPT="${BASH_SOURCE[0]}"
+fi
+# Make it absolute if relative
+if [[ "$OPENMONO_SCRIPT" != /* ]]; then
+    OPENMONO_SCRIPT="$(cd "$(dirname "$OPENMONO_SCRIPT")" && pwd)/$(basename "$OPENMONO_SCRIPT")"
+fi
+# Follow symlinks to real location
+while [[ -L "$OPENMONO_SCRIPT" ]]; do
+    OPENMONO_SCRIPT="$(readlink -f "$OPENMONO_SCRIPT" 2>/dev/null || readlink "$OPENMONO_SCRIPT")"
+done
+REPO_DIR="$(cd "$(dirname "$OPENMONO_SCRIPT")" && pwd)"
+DOCKER_DIR="$REPO_DIR/docker"
+LLAMA_PORT="${LLAMA_PORT:-7474}"
+OPENMONO_VERSION="$(cat "$REPO_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "unknown")"
+
+# On macOS Apple Silicon, llama-server runs natively via Homebrew (Metal GPU).
+# It is never started/stopped via Docker on this platform.
+_OPENMONO_OS=$(uname -s)
+_OPENMONO_ARCH=$(uname -m)
+NATIVE_INFERENCE=false
+[[ "$_OPENMONO_OS" == "Darwin" && "$_OPENMONO_ARCH" == "arm64" ]] && NATIVE_INFERENCE=true
+
+# Source macOS native helpers for macOS Apple Silicon
+if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+    source "$REPO_DIR/scripts/macos/inference.sh"
+    source "$REPO_DIR/scripts/macos/tunnel.sh"
+fi
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[38;2;163;255;102m' # Neon Green (replaces primary blue)
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { echo -e "${BLUE}[INFO]${NC} $*"; }
+ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
+err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
+# ── Docker accessibility check ─────────────────────────────────────────────────
+
+_ensure_docker() {
+    if docker info &>/dev/null 2>&1; then
+        return 0
+    fi
+
+    _OS=$(uname -s)
+    warn "Docker daemon is not accessible. Attempting to start..."
+
+    if [ "$_OS" = "Darwin" ]; then
+        # Try Docker Desktop first (if installed)
+        if [ -d "/Applications/Docker.app" ]; then
+            info "Starting Docker Desktop..."
+            open /Applications/Docker.app
+            info "Waiting for Docker daemon (up to 60s)..."
+            for i in $(seq 1 60); do
+                if docker info &>/dev/null 2>&1; then
+                    ok "Docker is ready"
+                    return 0
+                fi
+                sleep 1
+                printf "."
+            done
+            echo ""
+            err "Docker Desktop started but daemon is not accessible. Try: colima status"
+        # Fallback to Colima if Docker Desktop is not installed
+        elif command -v colima &>/dev/null; then
+            info "Starting Colima..."
+            if colima start 2>/dev/null; then
+                for i in $(seq 1 15); do
+                    docker info &>/dev/null 2>&1 && { ok "Docker is ready"; return 0; }
+                    sleep 1
+                done
+            fi
+            err "Colima failed to start. Try: colima status"
+        else
+            err "Neither Docker Desktop nor Colima is available. Try: openmono setup"
+        fi
+    else
+        info "Starting Docker daemon..."
+        if sudo systemctl start docker 2>/dev/null; then
+            for i in $(seq 1 15); do
+                docker info &>/dev/null 2>&1 && { ok "Docker is ready"; return 0; }
+                sleep 1
+            done
+            err "Docker started but daemon is not accessible"
+        else
+            err "Failed to start Docker. Try: sudo systemctl start docker"
+        fi
+    fi
+
+    exit 1
+}
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+cmd_version() {
+    echo "openmono $OPENMONO_VERSION"
+}
+
+cmd_help() {
+    echo ""
+    echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║        OpenMono.ai — AI Agent        ║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+    echo -e "  version $OPENMONO_VERSION"
+    echo ""
+    echo "Usage: openmono [--verbose|-v] <command>"
+    echo ""
+    echo "Commands are grouped by which box they run on. In single-box mode (default)"
+    echo "everything runs on one machine; in dual-box mode you split them across"
+    echo "an agent box and an inference box."
+    echo ""
+    echo "Any box:"
+    printf "  %-14s %s\n" "setup"   "Install (--full|--inference|--agent) [--gpu|--cpu]"
+    printf "  %-14s %s\n" "config"  "Read/write ~/.openmono/settings.json (e.g. llm.endpoint, llm.api_key)"
+    printf "  %-14s %s\n" "version" "Print the CLI version"
+    printf "  %-14s %s\n" "help"    "Show this help"
+    echo ""
+    echo "Agent box (run the coding agent):"
+    printf "  %-14s %s\n" "agent"    "Run the coding agent in the current directory"
+    printf "  %-14s %s\n" "graph"    "Build the code-review-graph for a project"
+    printf "  %-14s %s\n" "graphify" "Build the graphify knowledge graph for a project"
+    echo ""
+    echo "Inference box (llama-server lifecycle):"
+    printf "  %-14s %s\n" "start"   "Start llama-server in the background"
+    printf "  %-14s %s\n" "stop"    "Stop llama-server"
+    printf "  %-14s %s\n" "restart" "Restart llama-server"
+    printf "  %-14s %s\n" "logs"    "Tail llama-server logs"
+    printf "  %-14s %s\n" "status"  "Show container + GPU + model status"
+    echo ""
+    echo "Inference box (frpc tunnel to the relay — dual-box only):"
+    printf "  %-14s %s\n" "tunnel setup"      "Install frpc + systemd unit (prompts for relay signup values)"
+    printf "  %-14s %s\n" "tunnel rotate-key" "Rotate LLAMA_API_KEY and restart llama-server"
+    printf "  %-14s %s\n" "tunnel start"      "Start the frpc tunnel"
+    printf "  %-14s %s\n" "tunnel stop"       "Stop the frpc tunnel"
+    printf "  %-14s %s\n" "tunnel restart"    "Restart the frpc tunnel"
+    printf "  %-14s %s\n" "tunnel status"     "Show tunnel state + configured target"
+    printf "  %-14s %s\n" "tunnel logs"       "Tail frpc logs"
+    echo ""
+    echo "Global flags:"
+    printf "  %-14s %s\n" "--verbose, -v" "Enable verbose/debug output (forwarded to the agent)"
+    echo ""
+    echo "Note: 'agent' RUNS the agent; 'setup --agent' INSTALLS the agent box role."
+    echo ""
+    echo "Examples:"
+    echo "  openmono setup                    # First-time single-box setup (auto-detects GPU)"
+    echo "  openmono setup --cpu              # Force CPU mode"
+    echo "  openmono start                    # Start llama-server"
+    echo "  openmono agent                    # Run agent in current directory"
+    echo "  openmono --verbose                # Run agent with LLM debug output"
+    echo "  WORKSPACE=/my/repo openmono agent # Run agent against a specific repo"
+    echo "  openmono graph /path/to/project   # Index a project for code search"
+    echo ""
+    echo "Hybrid MoE mode (GPU + CPU offload):"
+    printf "  %-14s %s\n" "hybrid"  "Configure Qwen3.6-35B-A3B with --n-cpu-moe + TurboQuant (see setup-hybrid.sh)"
+    echo ""
+    echo "Dual-box walkthrough: see setup/readme.md"
+    echo ""
+}
+
+cmd_setup() {
+    # Parse flags
+    for arg in ${1+"$@"}; do
+        case "$arg" in
+            --gpu)          export OPENMONO_GPU=1 ;;
+            --cpu)          export OPENMONO_CPU=1 ;;
+            --inference)    export OPENMONO_ROLE=inference ;;
+            --agent)        export OPENMONO_ROLE=agent ;;
+            --full)         export OPENMONO_ROLE=full ;;
+            --verbose|-v)   export OPENMONO_VERBOSE=1 ;;
+            --help|-h)
+                echo "Usage: openmono setup [--full|--inference|--agent] [--gpu|--cpu] [--verbose]"
+                echo ""
+                echo "Installs one of three roles. Pick based on what the box will do:"
+                echo ""
+                echo "  --full        DEFAULT. Agent + llama-server + model on one machine."
+                echo "                Use when you have a single workstation."
+                echo "  --inference   llama-server + model only (no agent). Use on the GPU box"
+                echo "                in dual-box mode. Pair with 'openmono tunnel setup' to"
+                echo "                expose it through an OpenMono.Relay."
+                echo "  --agent       Agent + code-review-graph only (no model, no llama-server)."
+                echo "                Use on the laptop in dual-box mode. Point at a remote"
+                echo "                inference server via 'openmono config set llm.endpoint …'."
+                echo ""
+                echo "GPU mode (applies to --full and --inference):"
+                echo "  --gpu         Force GPU mode (requires NVIDIA + nvidia-container-toolkit)"
+                echo "  --cpu         Force CPU mode"
+                echo ""
+                echo "Other:"
+                echo "  --verbose     Show detailed command output (default: step-level progress)"
+                echo ""
+                echo "A full log is written to ~/.openmono/logs/setup-<timestamp>.log"
+                echo ""
+                echo "Dual-box flow:"                
+                echo "  Inference box: openmono setup --inference"
+                echo "                 openmono start"
+                echo "                 openmono tunnel setup"
+                echo "  Agent box:     openmono setup --agent"
+                echo "                 openmono config set llm.endpoint http://<frpsAddress>:<remotePort>"
+                echo "                 openmono config set llm.api_key <llama_api_key>"
+                echo "                 openmono agent"
+                return 0
+                ;;
+        esac
+    done
+
+    # Source shared logging helpers for role_prompt function
+    # shellcheck source=scripts/lib/log.sh
+    source "$REPO_DIR/scripts/lib/log.sh"
+
+    # Set install directory: explicit env var, or wherever the script is located
+    if [[ -n "${OPENMONO_HOME:-}" ]]; then
+        INSTALL_DIR="$OPENMONO_HOME"
+    else
+        INSTALL_DIR="$REPO_DIR"
+    fi
+
+    # Set up PATH before anything else so openmono is accessible during/after setup
+    # shellcheck source=/dev/null
+    source "$REPO_DIR/scripts/lib/shell-integration.sh" 2>/dev/null || true
+    info "Setting up shell integration..."
+    if install_to_system_path "$INSTALL_DIR"; then
+        ok "Command available system-wide: /usr/local/bin/openmono"
+    else
+        if setup_shell_integration "$INSTALL_DIR"; then
+            ok "Added to shell rc files"
+        else
+            warn "Could not auto-configure shell integration"
+            print_setup_instructions "$INSTALL_DIR"
+        fi
+    fi
+
+    # Interactive role prompt when no --full/--inference/--agent flag was given
+    role_prompt
+
+    # Share one log file across both scripts
+    export OPENMONO_LOG_DIR="${OPENMONO_LOG_DIR:-$HOME/.openmono/logs}"
+    mkdir -p "$OPENMONO_LOG_DIR"
+    export OPENMONO_LOG_FILE="$OPENMONO_LOG_DIR/setup-$(date +%Y%m%d-%H%M%S).log"
+    : > "$OPENMONO_LOG_FILE"
+
+    # Detect OS and choose the right installation scripts
+    _OS=$(uname -s)
+    case "$_OS" in
+        Darwin)
+            _PREREQS_SCRIPT="$REPO_DIR/scripts/install_prereqs_macos.sh"
+            _INSTALL_SCRIPT="$REPO_DIR/scripts/install_macos.sh"
+            ;;
+        Linux)
+            _PREREQS_SCRIPT="$REPO_DIR/scripts/install_prereqs.sh"
+            _INSTALL_SCRIPT="$REPO_DIR/scripts/install.sh"
+            # On Linux: if docker group membership is available but not active,
+            # re-exec ourselves with sg docker so the entire setup runs with
+            # the group active. This ensures docker is accessible after setup.
+            if command -v docker &>/dev/null && ! docker info &>/dev/null 2>&1 && id -nG 2>/dev/null | grep -qw docker; then
+                exec sg docker "$0" setup "$@"
+            fi
+            ;;
+        *)
+            err "Unsupported OS: $_OS (supported: Linux, macOS/Darwin)"
+            exit 1
+            ;;
+    esac
+
+    # Set env file before prereqs so both scripts can write to it
+    export OPENMONO_ENV_FILE="$HOME/.openmono/.tmp_install_env"
+    mkdir -p "$(dirname "$OPENMONO_ENV_FILE")"
+    : > "$OPENMONO_ENV_FILE"  # clear any previous run
+
+    bash "$_PREREQS_SCRIPT" 2>> "$OPENMONO_LOG_FILE" || {
+        echo ""
+        show_log_tail 30
+        err "Prerequisite install failed. Full log: $OPENMONO_LOG_FILE"
+        exit 1
+    }
+
+    # Propagate GPU_MODE chosen in install_prereqs.sh to install.sh.
+    # Child processes can't modify the parent environment, so prereqs writes the
+    # choice to a temp file; we read it here before launching install.sh.
+    if [[ -z "${OPENMONO_GPU:-}" && -f "$HOME/.openmono/.tmp_gpu_mode" ]]; then
+        _gpu_val=$(grep '^GPU_MODE=' "$HOME/.openmono/.tmp_gpu_mode" | cut -d= -f2 | tr -d '[:space:]')
+        [[ "$_gpu_val" == "1" ]] && export OPENMONO_GPU=1 || export OPENMONO_GPU=0
+        rm -f "$HOME/.openmono/.tmp_gpu_mode"
+    fi
+
+    bash "$_INSTALL_SCRIPT" 2>> "$OPENMONO_LOG_FILE" || {
+        echo ""
+        show_log_tail 30
+        err "Installation failed. Full log: $OPENMONO_LOG_FILE"
+        exit 1
+    }
+
+    # Source env written by install.sh before printing the completion banner
+    # (needed for LLAMA_PORT, GPU_MODE, INSTALL_DIR, OPENMONO_ROLE)
+    if [[ -n "${OPENMONO_ENV_FILE:-}" ]] && [[ -f "$OPENMONO_ENV_FILE" ]]; then
+        # shellcheck source=/dev/null
+        source "$OPENMONO_ENV_FILE"
+    fi
+
+    # Fallback values if not set
+    INSTALL_DIR="${INSTALL_DIR:-$HOME/openmono.ai}"
+    LLAMA_PORT="${LLAMA_PORT:-7474}"
+
+    # Print role-specific setup complete message
+    echo ""
+    printf "${BLUE}%s${NC}\n" "$(printf '─%.0s' $(seq 1 60))"
+    printf "${BLUE}${BOLD}  Setup Complete${NC} (role: %s)\n" "$OPENMONO_ROLE"
+    printf "${BLUE}%s${NC}\n" "$(printf '─%.0s' $(seq 1 60))"
+    echo ""
+    echo -e "  ${GREEN}✓${NC} OpenMono.ai is ready to use!"
+    echo ""
+
+    case "$OPENMONO_ROLE" in
+        full|inference)
+            echo "  llama-server port : ${LLAMA_PORT}"
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                echo "  mode              : Metal GPU (native llama.cpp)"
+            else
+                echo "  mode              : $([ "${GPU_MODE:-0}" = "1" ] && echo GPU || echo CPU)"
+            fi
+            echo ""
+            ;;
+    esac
+
+    case "$OPENMONO_ROLE" in
+        full)
+            echo "  Your machine is configured for single-box mode (agent + inference)."
+            echo ""
+            echo "  Next steps:"
+            echo -e "    1. ${BOLD}cd your-project/${NC}"
+            echo -e "    2. ${BOLD}openmono agent${NC}                 # Start the agent"
+            echo ""
+            echo "  Other commands:"
+            echo -e "    ${BOLD}openmono status${NC}              # Show llama-server status"
+            echo -e "    ${BOLD}openmono config${NC}             # Configure settings"
+            echo ""
+            ;;
+        inference)
+            echo "  Your machine is configured as the inference server."
+            echo ""
+            echo "  Next steps:"
+            echo -e "    1. ${BOLD}openmono tunnel setup${NC}       # Connect to openmonoagent.ai relay"
+            echo -e "    2. Use the endpoint + API key from step 1 on your agent box"
+            echo ""
+            echo "  Other commands:"
+            echo -e "    ${BOLD}openmono start${NC}              # Start llama-server"
+            echo -e "    ${BOLD}openmono status${NC}             # Show server status"
+            echo -e "    ${BOLD}openmono logs${NC}               # Tail server logs"
+            echo ""
+            ;;
+        agent)
+            echo "  Your machine is configured as the agent (dual-box mode)."
+            echo ""
+            echo "  ${BOLD}⚠ Important: You must configure the remote inference server first.${NC}"
+            echo ""
+            echo "  If the inference server is on a remote machine, run these commands NOW:"
+            echo ""
+            echo -e "    ${BOLD}openmono config set llm.endpoint http://<server-ip>:<port>${NC}"
+            echo -e "    ${BOLD}openmono config set llm.api_key <your-api-key>${NC}"
+            echo ""
+            echo "  Example (replace with your actual relay address from openmonoagent.ai):"
+            echo -e "    ${BOLD}openmono config set llm.endpoint http://relay.openmonoagent.ai:17474${NC}"
+            echo -e "    ${BOLD}openmono config set llm.api_key abc123def456${NC}"
+            echo ""
+            echo "  Then run the agent:"
+            echo -e "    ${BOLD}cd your-project/${NC}"
+            echo -e "    ${BOLD}openmono agent${NC}"
+            echo ""
+            echo "  Check config with:"
+            echo -e "    ${BOLD}openmono config${NC}"
+            echo ""
+            ;;
+    esac
+
+    echo "  Troubleshooting:"
+    echo "    If you exit before the shell reloads, reload it manually:"
+    echo -e "      ${BOLD}exec -l \$SHELL${NC}    # Reload login shell (picks up new groups + PATH)"
+    echo ""
+    echo "  Full help: openmono --help"
+    printf "${BLUE}%s${NC}\n" "$(printf '─%.0s' $(seq 1 60))"
+    echo ""
+    show_log_location
+
+    # Initialize settings.json with role-appropriate defaults if it doesn't exist
+    local settings_dir="$HOME/.openmono"
+    local settings_file="$settings_dir/settings.json"
+    mkdir -p "$settings_dir"
+    if [[ ! -f "$settings_file" ]]; then
+        if [[ "${OPENMONO_ROLE:-}" == "agent" ]]; then
+            # Agent-only: leave endpoint empty (user must configure a remote server)
+            cat > "$settings_file" <<'EOF'
+{
+  "llm": {
+    "endpoint": "",
+    "api_key": ""
+  }
+}
+EOF
+            detail "Created $settings_file for agent-only role (configure endpoint with: openmono config set llm.endpoint <url>)"
+        else
+            # Full/inference roles: default to localhost (install_macos.sh will override on macOS)
+            cat > "$settings_file" <<'EOF'
+{
+  "llm": {
+    "endpoint": "http://localhost:7474",
+    "api_key": ""
+  }
+}
+EOF
+            detail "Created $settings_file with defaults"
+        fi
+    fi
+
+    # Clear saved setup preferences so next setup starts fresh
+    rm -f "$HOME/.openmono/.setup_prefs"
+
+    # Unset all setup-related environment variables so the next 'openmono setup'
+    # run in the same shell will start fresh with hardware detection
+    unset OPENMONO_GPU OPENMONO_CPU OPENMONO_ROLE OPENMONO_VERBOSE OPENMONO_LOG_DIR \
+          OPENMONO_LOG_FILE OPENMONO_ENV_FILE GPU_MODE AMD_IGPU_MODE AMD_IGPU_REBOOT_PENDING \
+          INSTALL_DIR LLAMA_PORT OPENMONO_VERBOSE
+
+    # Restart the shell with updated PATH so openmono and docker are immediately available
+    # The docker group is already active in this process, and exec preserves it
+    # Use -l flag to start as login shell, which reads .zprofile/.bash_profile with Homebrew setup
+    export PATH="$INSTALL_DIR:$PATH"
+    exec -l "$SHELL"
+}
+
+cmd_start() {
+    if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+        native_cmd_start || return $?
+        echo ""
+        echo "  Run the agent: openmono agent"
+        return 0
+    fi
+
+    _ensure_docker
+    cd "$DOCKER_DIR"
+    export LLAMA_PORT
+    if ss -tlnp 2>/dev/null | grep -q ":${LLAMA_PORT} "; then
+        if curl -sf "http://localhost:${LLAMA_PORT}/health" &>/dev/null; then
+            ok "llama-server already running on port ${LLAMA_PORT}"
+            echo "  Run the agent: openmono agent"
+            return
+        fi
+        err "Port ${LLAMA_PORT} is in use by another process. Use LLAMA_PORT=<port> openmono start"
+        exit 1
+    fi
+    info "Starting llama-server on port ${LLAMA_PORT}..."
+    docker compose up -d llama-server
+
+    info "Waiting for llama-server to be healthy (model load can take 1-3 min)..."
+    HEALTHY=false
+    for i in $(seq 1 36); do
+        if curl -sf "http://localhost:${LLAMA_PORT}/health" &>/dev/null; then
+            echo ""
+            ok "llama-server is healthy on port ${LLAMA_PORT}"
+            HEALTHY=true
+            break
+        fi
+        sleep 5
+        echo -n "."
+    done
+
+    if [ "$HEALTHY" = false ]; then
+        echo ""
+        warn "Not healthy yet — model may still be loading."
+        warn "Check progress: openmono logs"
+    else
+        echo ""
+        echo "  Run the agent: openmono agent"
+    fi
+}
+
+cmd_stop() {
+    if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+        native_cmd_stop || return $?
+        # Stop agent containers too if Docker is up
+        if docker info &>/dev/null 2>&1; then
+            (cd "$DOCKER_DIR" && docker compose down 2>/dev/null || true)
+        fi
+        return 0
+    fi
+
+    _ensure_docker
+    cd "$DOCKER_DIR"
+    export LLAMA_PORT
+
+    # Check health (warn only, don't fail)
+    if ! curl -sf "http://localhost:${LLAMA_PORT}/health" &>/dev/null; then
+        warn "llama-server is not responding on port ${LLAMA_PORT}"
+    fi
+
+    info "Stopping llama-server..."
+    if docker compose stop llama-server 2>/dev/null; then
+        ok "Stopped"
+    else
+        # If stop failed, try kill
+        if docker compose kill llama-server 2>/dev/null; then
+            ok "Force-stopped"
+        else
+            err "Failed to stop llama-server. Try: cd docker && docker compose kill llama-server"
+            return 1
+        fi
+    fi
+
+    # Clean up container
+    docker compose down 2>/dev/null || true
+}
+
+cmd_restart() {
+    if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+        native_cmd_restart || return $?
+        return 0
+    fi
+
+    _ensure_docker
+    cd "$DOCKER_DIR"
+    export LLAMA_PORT
+    info "Restarting llama-server..."
+    docker compose restart llama-server
+    ok "Restarted"
+}
+
+cmd_agent() {
+    _ensure_docker
+    WORKSPACE="${WORKSPACE:-$(pwd)}"
+    export WORKSPACE
+    cd "$DOCKER_DIR"
+
+    # Read endpoint and API key from settings
+    local settings="$HOME/.openmono/settings.json"
+    local cfg_endpoint cfg_key
+    if [[ -f "$settings" ]] && command -v jq &>/dev/null; then
+        cfg_endpoint=$(jq -r '.llm.endpoint // empty' "$settings")
+        cfg_key=$(jq -r '.llm.api_key // empty' "$settings")
+        [[ -n "$cfg_key" ]] && export OPENMONO_API_KEY="$cfg_key"
+    fi
+
+    # Endpoint must be configured
+    if [[ -z "$cfg_endpoint" ]]; then
+        err "No LLM endpoint configured in ~/.openmono/settings.json"
+        err "Configure your inference server:"
+        err "  openmono config set llm.endpoint http://<server-ip>:<port>"
+        exit 1
+    fi
+
+    # Determine if endpoint is local or remote
+    local is_local=false
+    case "$cfg_endpoint" in
+        http://localhost:* | http://127.0.0.1:* | http://host.docker.internal:*)
+            is_local=true
+            ;;
+    esac
+
+    # Ensure local inference server is running
+    if [[ "$is_local" == "true" ]]; then
+        if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+            # macOS: ensure native Metal llama-server is running
+            # shellcheck source=/dev/null
+            source "$REPO_DIR/scripts/macos/inference.sh" 2>/dev/null || true
+            native_load_config || exit 1
+            native_ensure_running || exit 1
+        else
+            # Linux/Docker: ensure docker llama-server is running
+            if ! curl -sf "http://localhost:7474/health" &>/dev/null; then
+                info "llama-server not running — starting it now..."
+                docker compose up -d llama-server
+                info "Waiting for llama-server to be healthy (model load can take 1-2 min)..."
+                for i in $(seq 1 36); do
+                    if curl -sf "http://localhost:7474/health" &>/dev/null; then
+                        ok "llama-server is healthy"
+                        break
+                    fi
+                    sleep 5
+                    printf "."
+                done
+                echo ""
+            fi
+        fi
+    fi
+
+    # Pass configured endpoint to container.
+    # When the configured endpoint is loopback (Linux install.sh writes
+    # http://localhost:7474) and we're running llama-server in docker, that
+    # address points at the agent container's own loopback, not the host.
+    # Rewrite to the compose service name so both containers talk over
+    # openmono-network. macOS keeps host.docker.internal as-is.
+    if [[ "$is_local" == "true" && "$NATIVE_INFERENCE" != "true" ]]; then
+        export OPENMONO_ENDPOINT="http://llama-server:7474"
+    else
+        export OPENMONO_ENDPOINT="$cfg_endpoint"
+    fi
+
+    docker compose run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/home/agent \
+        -e WORKSPACE="$WORKSPACE" \
+        agent "$@"
+}
+
+cmd_logs() {
+    if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+
+        native_cmd_logs || return $?
+    else
+        _ensure_docker
+        cd "$DOCKER_DIR"
+        export LLAMA_PORT
+        docker compose logs -f llama-server
+    fi
+}
+
+cmd_status() {
+    echo ""
+
+    if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+        native_cmd_status
+    else
+        _ensure_docker
+        if ! docker info &>/dev/null 2>&1; then
+            warn "Docker daemon is not accessible — cannot show status"
+            if [ "$_OPENMONO_OS" = "Darwin" ]; then
+                [ -d "/Applications/Docker.app" ] && warn "Try: open /Applications/Docker.app" \
+                    || warn "Try: colima start"
+            else
+                warn "Try: sudo systemctl start docker"
+            fi
+            return 1
+        fi
+
+        echo -e "${BLUE}── Containers ───────────────────────────────────────${NC}"
+        docker ps \
+            --filter "name=docker-llama-server" \
+            --filter "name=docker-agent" \
+            --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
+
+        echo ""
+        echo -e "${BLUE}── llama-server health ──────────────────────────────${NC}"
+        if curl -sf "http://localhost:${LLAMA_PORT}/health" &>/dev/null; then
+            ok "http://localhost:${LLAMA_PORT}/health → OK"
+        else
+            warn "http://localhost:${LLAMA_PORT}/health → not responding"
+        fi
+
+        echo ""
+        echo -e "${BLUE}── GPU ──────────────────────────────────────────────${NC}"
+        if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
+            nvidia-smi \
+                --query-gpu=name,memory.used,memory.total,utilization.gpu \
+                --format=csv,noheader,nounits \
+                | awk -F', ' '{printf "  %s  VRAM: %s/%s MiB  GPU: %s%%\n", $1, $2, $3, $4}'
+        else
+            HAS_HW=false
+            if command -v lspci &>/dev/null && lspci 2>/dev/null | grep -qi 'nvidia'; then
+                HAS_HW=true
+            elif grep -qi "0x10de" /sys/bus/pci/devices/*/vendor 2>/dev/null; then
+                HAS_HW=true
+            fi
+            if [ "$HAS_HW" = true ]; then
+                echo -e "  ${YELLOW}⚠${NC}  NVIDIA hardware detected, but drivers not working/installed"
+            else
+                echo "  No NVIDIA GPU detected"
+            fi
+        fi
+    fi
+
+    echo ""
+    echo -e "${BLUE}── Model ────────────────────────────────────────────${NC}"
+    # Strategy 1: query the running server (/props for llama.cpp, /v1/models for relays)
+    LOADED=""
+    LOADED=$(curl -sf --max-time 3 "http://localhost:${LLAMA_PORT}/props" \
+        | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+def basename(p): return p.split('/')[-1].replace('.gguf', '').replace('.GGUF', '') if p else ''
+name = (d.get('model_alias') or '').strip() \
+    or basename((d.get('model_path') or '').strip()) \
+    or basename((d.get('default_generation_settings', {}).get('model') or '').strip())
+print(name)
+" 2>/dev/null || true)
+    if [ -z "$LOADED" ]; then
+        LOADED=$(curl -sf --max-time 3 "http://localhost:${LLAMA_PORT}/v1/models" \
+            | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+models = d.get('data', [])
+print(models[0].get('id', '').strip() if models else '')
+" 2>/dev/null || true)
+    fi
+
+    if [ -n "$LOADED" ]; then
+        ok "Model loaded: $LOADED"
+    else
+        # Strategy 2: fall back to any .gguf on disk
+        GGUF=$(find "$REPO_DIR/models" -maxdepth 1 -name "*.gguf" 2>/dev/null | head -1)
+        if [ -n "$GGUF" ]; then
+            SIZE=$(du -h "$GGUF" | cut -f1)
+            ok "Model on disk: $(basename "$GGUF") ($SIZE)"
+        else
+            warn "Model not found — run: openmono setup"
+        fi
+    fi
+    echo ""
+}
+
+cmd_graph() {
+    bash "$REPO_DIR/scripts/setup-graph.sh" "${@}"
+}
+
+cmd_graphify() {
+    bash "$REPO_DIR/scripts/setup-graphify.sh" "${@}"
+}
+
+cmd_config() {
+    local settings="$HOME/.openmono/settings.json"
+
+    # Help works even without jq installed
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        echo "Usage: openmono config <subcommand>"
+        echo ""
+        echo "  get <key>           Read a setting (dotted path, e.g. llm.endpoint)"
+        echo "  set <key> <value>   Write a setting"
+        echo "  unset <key>         Remove a setting"
+        echo "  list                Print the whole settings file (default)"
+        echo ""
+        echo "Examples:"
+        echo "  openmono config set llm.endpoint http://10.0.0.5:17474"
+        echo "  openmono config set llm.api_key mytoken123"
+        echo "  openmono config get llm.endpoint"
+        echo "  openmono config unset llm.api_key"
+        echo ""
+        echo "Settings file: ~/.openmono/settings.json"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$settings")"
+    [[ -f "$settings" ]] || echo '{}' > "$settings"
+
+    if ! command -v jq &>/dev/null; then
+        err "jq is required for 'openmono config'. Install it: sudo apt install jq"
+        return 1
+    fi
+
+    case "${1:-}" in
+        get)
+            if [[ -z "${2:-}" ]]; then
+                err "Usage: openmono config get <key>"
+                return 1
+            fi
+            jq -r ".$2 // empty" "$settings"
+            ;;
+        set)
+            if [[ -z "${2:-}" || -z "${3:-}" ]]; then
+                err "Usage: openmono config set <key> <value>"
+                return 1
+            fi
+            local path="$2" value="$3"
+            # Build a jq path like .llm.api_key from dotted input "llm.api_key"
+            # shellcheck disable=SC2001
+            local jq_path
+            jq_path=".$(echo "$path" | sed 's/\./.\"/g; s/$/\"/; s/^\.\"/./')"
+            jq "$jq_path = \"$value\"" "$settings" > "$settings.tmp"
+            mv "$settings.tmp" "$settings"
+            chmod 0600 "$settings"
+            ok "$path = $value"
+            ;;
+        unset)
+            if [[ -z "${2:-}" ]]; then
+                err "Usage: openmono config unset <key>"
+                return 1
+            fi
+            local upath="$2"
+            local ujq
+            ujq=".$(echo "$upath" | sed 's/\./.\"/g; s/$/\"/; s/^\.\"/./')"
+            jq "del($ujq)" "$settings" > "$settings.tmp"
+            mv "$settings.tmp" "$settings"
+            chmod 0600 "$settings"
+            ok "unset $upath"
+            ;;
+        list|"")
+            jq . "$settings"
+            ;;
+        *)
+            err "Unknown config subcommand: $1"
+            echo "Run: openmono config --help"
+            return 1
+            ;;
+    esac
+}
+
+# ── Tunnel (frpc) subcommands — run on the inference box ──────────────────────
+
+tunnel_require_systemd() {
+    if ! command -v systemctl &>/dev/null; then
+        err "systemctl not available — tunnel commands are Linux/systemd only."
+        exit 1
+    fi
+}
+
+cmd_tunnel() {
+    local sub="${1:-help}"
+    shift || true
+    case "$sub" in
+        setup)
+            bash "$REPO_DIR/scripts/setup-tunnel-inference.sh" "$@"
+            ;;
+        start)
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                macos_tunnel_cmd_start
+            else
+                tunnel_require_systemd
+                info "Starting frpc tunnel..."
+                sudo systemctl start frpc
+                sleep 1
+                if systemctl is-active --quiet frpc; then
+                    ok "frpc is active"
+                else
+                    err "frpc failed to start. Check: openmono tunnel logs"
+                    exit 1
+                fi
+            fi
+            ;;
+        stop)
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                macos_tunnel_cmd_stop
+            else
+                tunnel_require_systemd
+                info "Stopping frpc tunnel..."
+                sudo systemctl stop frpc
+                ok "Stopped"
+            fi
+            ;;
+        restart)
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                macos_tunnel_cmd_restart
+            else
+                tunnel_require_systemd
+                info "Restarting frpc tunnel..."
+                sudo systemctl restart frpc
+                sleep 1
+                if systemctl is-active --quiet frpc; then
+                    ok "frpc is active"
+                else
+                    err "frpc failed to restart. Check: openmono tunnel logs"
+                    exit 1
+                fi
+            fi
+            ;;
+        status)
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                macos_tunnel_cmd_status
+            else
+                echo ""
+                echo -e "${BLUE}── frpc (tunnel) service ────────────────────────────${NC}"
+                if command -v systemctl &>/dev/null \
+                    && systemctl list-unit-files 2>/dev/null | grep -q '^frpc\.service'; then
+                    if systemctl is-active --quiet frpc; then
+                        ok "frpc.service → active"
+                    else
+                        warn "frpc.service → inactive"
+                    fi
+                    systemctl --no-pager -n 3 status frpc 2>/dev/null | sed -n '1,5p' || true
+                else
+                    warn "frpc.service not installed. Run: openmono tunnel setup"
+                fi
+
+                echo ""
+                echo -e "${BLUE}── Configured target ────────────────────────────────${NC}"
+                if [[ -f /etc/frp/frpc.toml ]]; then
+                    local server_addr remote_port
+                    server_addr="$(awk -F'"' '/^serverAddr/{print $2; exit}' /etc/frp/frpc.toml 2>/dev/null)"
+                    remote_port="$(awk -F'= *' '/^remotePort/{print $2; exit}' /etc/frp/frpc.toml 2>/dev/null | tr -d ' ')"
+                    [[ -n "$server_addr" ]] && info "serverAddr = $server_addr"
+                    [[ -n "$remote_port" ]] && info "remotePort = $remote_port"
+                    if [[ -n "$server_addr" && -n "$remote_port" ]]; then
+                        info "Public endpoint: http://$server_addr:$remote_port"
+                    fi
+                else
+                    warn "/etc/frp/frpc.toml not found"
+                fi
+                echo ""
+            fi
+            ;;
+        logs)
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                macos_tunnel_cmd_logs
+            else
+                tunnel_require_systemd
+                sudo journalctl -u frpc -f
+            fi
+            ;;
+        rotate-key)
+            if [[ "$NATIVE_INFERENCE" == "true" ]]; then
+                native_cmd_tunnel_rotate_key
+            else
+                local env_file="$REPO_DIR/docker/.env"
+                local relay_cache="$HOME/.openmono/relay.json"
+
+                if [[ ! -f "$env_file" ]]; then
+                    err "docker/.env not found. Run 'openmono tunnel setup' first."
+                    return 1
+                fi
+
+                local new_key
+                new_key="$(openssl rand -hex 24)"
+
+                # Write new key to docker/.env
+                local tmp
+                tmp="$(mktemp)"
+                grep -v '^LLAMA_API_KEY=' "$env_file" > "$tmp" || true
+                echo "LLAMA_API_KEY=$new_key" >> "$tmp"
+                mv "$tmp" "$env_file"
+                chmod 0600 "$env_file"
+                ok "LLAMA_API_KEY rotated in docker/.env"
+
+                # Restart llama-server to enforce the new key immediately
+                if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
+                    if (cd "$REPO_DIR/docker" && docker compose ps --services 2>/dev/null | grep -q '^llama-server$'); then
+                        info "Restarting llama-server with new API key..."
+                        (cd "$REPO_DIR/docker" && docker compose restart llama-server) || \
+                            warn "Restart failed — run manually: cd docker && docker compose restart llama-server"
+                        ok "llama-server restarted"
+                    else
+                        warn "llama-server is not running — start it with: openmono start"
+                    fi
+                else
+                    warn "docker compose not found — restart llama-server manually to enforce the new key"
+                fi
+
+                # Read endpoint from relay cache for convenience
+                local endpoint=""
+                if [[ -f "$relay_cache" ]]; then
+                    local frps_addr remote_port
+                    frps_addr="$(jq -r '.frpsAddress // empty' "$relay_cache" 2>/dev/null)"
+                    remote_port="$(jq -r '.remotePort // empty' "$relay_cache" 2>/dev/null)"
+                    [[ -n "$frps_addr" && -n "$remote_port" ]] && \
+                        endpoint="http://$frps_addr:$remote_port"
+                fi
+
+                echo ""
+                printf "${BLUE}%s${NC}\n" "$(printf '─%.0s' $(seq 1 60))"
+                printf "${BLUE}${BOLD}  API Key Rotated${NC}\n"
+                printf "${BLUE}%s${NC}\n" "$(printf '─%.0s' $(seq 1 60))"
+                echo ""
+                echo "  Run the following on the agent box to apply the new key:"
+                echo ""
+                [[ -n "$endpoint" ]] && \
+                    printf "    ${BOLD}openmono config set llm.endpoint  %s${NC}\n" "$endpoint"
+                printf "    ${BOLD}openmono config set llm.api_key   %s${NC}\n" "$new_key"
+                echo ""
+            fi
+            ;;
+        help|--help|-h|"")
+            echo "Usage: openmono tunnel <subcommand>"
+            echo ""
+            echo "Run on the inference box. Manages the frpc tunnel that dials your"
+            echo "OpenMono.ai relay server. On Linux, the tunnel runs as a systemd service;"
+            echo "on macOS, it runs as a Homebrew service."
+            echo ""
+            echo "  setup       Install and configure frpc; prompts for relay credentials"
+            echo "              (frpsAddress, relayToken, remotePort, proxyPrefix)."
+            echo "              Preserves existing LLAMA_API_KEY."
+            echo "  rotate-key  Generate a new LLAMA_API_KEY and restart llama-server."
+            echo "              Use when credentials are compromised. Prints the config"
+            echo "              set commands for the agent box."
+            echo "  start       Start the frpc tunnel"
+            echo "  stop        Stop the frpc tunnel"
+            echo "  restart     Restart the frpc tunnel"
+            echo "  status      Show tunnel state + configured target"
+            echo "  logs        Tail tunnel logs"
+            echo ""
+            ;;
+        *)
+            err "Unknown tunnel subcommand: $sub"
+            cmd_tunnel help
+            return 1
+            ;;
+    esac
+}
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+# Pre-parse global flags that may appear before any subcommand. Recognised
+# global flags are stripped from the positional list and (where relevant)
+# forwarded to the underlying agent binary.
+AGENT_FORWARD=()
+POSITIONAL=()
+for arg in "$@"; do
+    case "$arg" in
+        --verbose|-v)
+            export OPENMONO_VERBOSE=1
+            AGENT_FORWARD+=("--verbose")
+            ;;
+        *)
+            POSITIONAL+=("$arg")
+            ;;
+    esac
+done
+
+# If the only thing the user passed was a global flag (e.g. `openmono --verbose`),
+# default to running the agent. Otherwise fall back to `help` as before.
+if [ ${#POSITIONAL[@]} -eq 0 ]; then
+    if [ ${#AGENT_FORWARD[@]} -gt 0 ]; then
+        COMMAND="agent"
+    else
+        COMMAND="help"
+    fi
+    set --
+else
+    COMMAND="${POSITIONAL[0]}"
+    set -- "${POSITIONAL[@]:1}"
+fi
+
+case "$COMMAND" in
+    setup)          cmd_setup "$@";;
+    start)          cmd_start ;;
+    stop)           cmd_stop ;;
+    restart)        cmd_restart ;;
+    agent)          cmd_agent "${AGENT_FORWARD[@]+"${AGENT_FORWARD[@]}"}" "$@" ;;
+    logs)           cmd_logs ;;
+    status)         cmd_status ;;
+    graph)          cmd_graph "$@" ;;
+    graphify)       cmd_graphify "$@" ;;
+    config)         cmd_config "$@" ;;    
+    tunnel)         cmd_tunnel "$@" ;;
+    hybrid)         bash "$REPO_DIR/setup-hybrid.sh" "$@" ;;
+    version|--version|-V) cmd_version ;;
+    help|--help|-h) cmd_help ;;
+    *)
+        err "Unknown command: $COMMAND"
+        cmd_help
+        exit 1
+        ;;
+esac

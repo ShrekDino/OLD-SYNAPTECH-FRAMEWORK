@@ -1,0 +1,5 @@
+pamac-aur
+signal-cli
+tetrd
+appimagelauncher
+miniconda3

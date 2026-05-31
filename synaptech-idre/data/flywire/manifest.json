@@ -1,0 +1,10 @@
+{
+  "dataset": "FlyWire",
+  "version": "v1.0",
+  "n_neurons": 130000,
+  "n_synapses_estimate": 50000000,
+  "format": "CSV",
+  "required_columns": ["source", "target", "weight"],
+  "notes": "Place FlyWire edge-list CSV/Parquet files in this directory. The ConnectomeLoader will auto-discover them.",
+  "file_naming": "flywire_edges.csv or flywire_edges.parquet"
+}

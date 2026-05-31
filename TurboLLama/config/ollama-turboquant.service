@@ -1,0 +1,16 @@
+[Unit]
+Description=TurboLLama - Ollama compatible, TurboQuant powered
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+Environment=OLLAMA_KV_CACHE_TYPE=turbo3
+Environment=OLLAMA_FLASH_ATTENTION=0
+Environment=OLLAMA_EXPERT_CACHE_SIZE=1024
+Environment=OLLAMA_KEEP_ALIVE=5m
+Restart=on-failure
+RestartSec=5
+Type=simple
+
+[Install]
+WantedBy=multi-user.target

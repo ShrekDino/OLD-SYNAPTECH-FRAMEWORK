@@ -1,0 +1,54 @@
+site_name: FreeGen
+site_description: Open-source screen capture upscaling and frame generation tool
+site_url: https://shrekdino.github.io/Project-FreeGen
+repo_url: https://github.com/ShrekDino/Project-FreeGen
+repo_name: ShrekDino/Project-FreeGen
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Pipeline: pipeline.md
+  - Effects: effects.md
+  - Capture Backends: capture-backends.md
+  - Build Guide: build.md
+  - Configuration: configuration.md
+  - Packaging: packaging.md
+  - Contributing: contributing.md
+  - API Reference: api/
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - awesome-pages
