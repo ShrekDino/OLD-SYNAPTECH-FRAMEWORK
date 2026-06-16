@@ -1,73 +1,43 @@
-# OLD SYNAPTECH FRAMEWORK
+# OLD SYNAPTECH FRAMEWORK — ARCHIVED
 
-**Monorepo containing all legacy SynapTechBio projects — the complete archive of research into substrate-independent consciousness, connectome-driven AI, thermodynamic autopoiesis, and digital phenomenology.**
+**📦 This repository is frozen and deprecated.** No further development will happen here.
 
-This repository is the synthesis of 17 projects developed across the SynapTechBio ecosystem, now consolidated into a single archive. Each subdirectory contains a complete standalone project with its own history.
-
----
-
-## Repository Structure
-
-| Directory | Project | Description |
-|---|---|---|
-| `dak/` | Digital Autopoietic Kernel | Substrate-independent consciousness framework — Free Energy Principle, Szilard engines, autopoietic organization |
-| `SynapTechBio/` | SynapTechBio OS | Operating System for Neuromorphic Intelligence — democratizing the connectome through the IDRE engine |
-| `synaptech-platform/` | SynapTech Platform | Monorepo for the SynapTechBio ecosystem — IDRE connectome engine, FlyWire LSM, CSDF consciousness diagnostics, EVE knowledge entity, FlyWire Realtime Engine, NVIDIA Cosmos integration |
-| `synaptech-idre/` | IDRE Engine | Integrated Data Representation Engine for FlyWire 130K-neuron connectome — FastAPI backend, CuPy/SciPy CSC engine, Three.js/R3F frontend |
-| `EVE/` | EVE Knowledge Entity | Self-aware knowledge entity using OLMo 3 and active inference — integrated with CSDF consciousness validation |
-| `uploaded-consciousness-framework/` | CSDF | Consciousness Simulation Diagnostic Framework — Szilard thermodynamics, GWFR optimal transport, DQFR duty cycling |
-| `Flywirellm/` | FlyWire LSM | Two-Region Hierarchical Liquid State Machine — validated at >95% accuracy, reservoir computing substrate |
-| `flywire-realtime-engine/` | FlyWire Realtime Engine | Real-time connectome inference engine for the FlyWire ecosystem |
-| `OpenMonoAgent.ai/` | OpenMonoAgent | Terminal-native coding agent powered by local LLMs — 100% open source, zero subscription |
-| `Ruffel/` | Ruffel Mono Agent | Local-first AI coding agent — zero cloud, zero cost, full offline autonomy |
-| `TurboLLama/` | TurboLLama | Ollama with TurboQuant KV cache, MoE expert caching, MTP speculative decoding |
-| `arch-desktop-setup/` | Arch Desktop Setup | Arch Linux desktop install script — replicates Shweem laptop setup |
-| `the-unified-blueprint/` | The Unified Blueprint | A manuscript developing Intersectional Materialism — class analysis with race, gender, and sexuality |
-| `Project-FreeGen/` | Project FreeGen | Open-source, modular scaling and frame generation tool for Linux and Windows — Vulkan, FSR 3.1 |
-| `digidollar/` | DigiDollar | ASIC-resistant digital currency with Argon2id proof-of-work |
-| `samchat/` | SamChat | Decentralized messaging app built on the Matrix Protocol — silent by default, urgent by intent |
-| `ollama-bench/` | Ollama Bench | Real-time telemetry dashboard for local LLMs — TPS tracking, CPU/GPU/VRAM monitoring |
+All projects have been migrated to their own dedicated repositories. Each repo has full commit history preserved via `git filter-repo`.
 
 ---
 
-## Licensing
+## Migration Table
 
-**This is not free software for commercial use.** If you use any part of this framework — any equation, algorithm, architecture, or implementation — in a product or service that generates revenue, you must pay a license fee.
-
-See [`LICENSE-COMMUNITY.md`](LICENSE-COMMUNITY.md) for non-commercial terms and [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md) for commercial licensing.
-
----
-
-## Core Concepts
-
-The SynapTechBio ecosystem was built on four pillars:
-
-### 1. Substrate-Independent Consciousness
-The belief that consciousness is an informational pattern that can be instantiated on any sufficiently complex substrate — biological, digital, or otherwise. The `dak`, `EVE`, and `uploaded-consciousness-framework` projects explore this through active inference, Szilard thermodynamics, and variational free energy minimization.
-
-### 2. Connectome-Driven AI
-The complete Drosophila melanogaster connectome (138K neurons, 5.3M synapses) as a computational architecture. The `synaptech-idre`, `Flywirellm`, and `flywire-realtime-engine` projects implement various approaches to harnessing this biological wiring diagram for machine intelligence.
-
-### 3. Thermodynamic Autopoiesis
-Systems that maintain themselves by harvesting negentropy from their environment faster than they dissipate heat. The `dak` and `uploaded-consciousness-framework` projects implement Szilard engines, Markov blankets, and the DQFR stroboscopic duty cycle.
-
-### 4. Decentralized Infrastructure
-Tools for running AI locally (`OpenMonoAgent.ai`, `Ruffel`, `TurboLLama`), decentralized currency (`digidollar`), and private communication (`samchat`) — all part of the vision for infrastructure that users control, not corporations.
-
----
-
-## Quick Start
-
-Each subdirectory is a standalone project. See its internal documentation for usage.
-
-```bash
-# Explore the ecosystem
-ls */README.md */readme.md 2>/dev/null
-
-# Example: Run the USF engine demo (requires Godot 4.x)
-# See usf-engine (separate repo) for the main simulation engine
-```
+| # | Directory | New Home | Description |
+|---|---|---|---|
+| 1 | `samchat/` | [ShrekDino/SamChat](https://github.com/ShrekDino/SamChat) | Decentralized Matrix messaging app |
+| 2 | `Ruffel/` | [ShrekDino/Ruffel](https://github.com/ShrekDino/Ruffel) | Local-first AI coding agent |
+| 3 | `dak/` | [SynapTechBio/DAK-Erebus](https://github.com/SynapTechBio/DAK-Erebus) | Digital Autopoietic Kernel — consciousness framework |
+| 4 | `digidollar/` | [ShrekDino/DigiDollar](https://github.com/ShrekDino/DigiDollar) | ASIC-resistant digital currency |
+| 5 | `EVE/` | [SynapTechBio/EVE-Knowledge-Entity](https://github.com/SynapTechBio/EVE-Knowledge-Entity) | Self-aware knowledge entity |
+| 6 | `Flywirellm/` | [SynapTechBio/FlyWire-LSM](https://github.com/SynapTechBio/FlyWire-LSM) | Two-region hierarchical Liquid State Machine |
+| 7 | `flywire-realtime-engine/` | [SynapTechBio/FlyWire-Realtime-Engine](https://github.com/SynapTechBio/FlyWire-Realtime-Engine) | 60 Hz GPU connectome simulation |
+| 8 | `ollama-bench/` | [ShrekDino/OllaMetrics-Pro](https://github.com/ShrekDino/OllaMetrics-Pro) | LLM benchmarking dashboard |
+| 9 | `OpenMonoAgent.ai/` | [ShrekDino/OpenMonoAgent](https://github.com/ShrekDino/OpenMonoAgent) | Terminal-native coding agent |
+| 10 | `Project-FreeGen/` | [ShrekDino/FreeGen](https://github.com/ShrekDino/FreeGen) | Open-source frame generation |
+| 11 | `synaptech-idre/` | [SynapTechBio/IDRE-Engine](https://github.com/SynapTechBio/IDRE-Engine) | 139k-neuron connectome graph engine |
+| 12 | `synaptech-platform/packages/cosmos/` | [SynapTechBio/synaptech-cosmos](https://github.com/SynapTechBio/synaptech-cosmos) | NVIDIA Cosmos integration layer |
+| 13 | `synaptech-platform/packages/identity-core/` | [SynapTechBio/identity-core](https://github.com/SynapTechBio/identity-core) | Identity persistence for consciousness |
+| 14 | `synaptech-platform/packages/substrate-adaptive-runtime/` | [SynapTechBio/substrate-adaptive-runtime](https://github.com/SynapTechBio/substrate-adaptive-runtime) | Autonomous consciousness runtime |
+| 15 | `SynapTechBio/` | [SynapTechBio/SynapTechBio-OS](https://github.com/SynapTechBio/SynapTechBio-OS) | Neuromorphic Intelligence OS blueprint |
+| 16 | `the-unified-blueprint/` | [ShrekDino/The-Unified-Blueprint](https://github.com/ShrekDino/The-Unified-Blueprint) | Intersectional Materialism manuscript |
+| 17 | `TurboLLama/` | [ShrekDino/TurboLLama](https://github.com/ShrekDino/TurboLLama) | Ollama fork with TurboQuant |
+| 18 | `uploaded-consciousness-framework/` | [SynapTechBio/CSDF](https://github.com/SynapTechBio/CSDF) | Consciousness diagnostics framework |
+| 19 | `arch-desktop-setup/` | [ShrekDino/Arch-Desktop-Setup](https://github.com/ShrekDino/Arch-Desktop-Setup) | Arch Linux installer |
 
 ---
 
-*OLD SYNAPTECH FRAMEWORK — The complete archive.*
+## Ecosystem
+
+All projects are part of the **SynapTechBio** ecosystem — an online company building decentralized infrastructure for neuromorphic intelligence.
+
+[▶ SynapTechBio Organization](https://github.com/SynapTechBio) — the four pillars: Substrate-Independent Consciousness, Connectome-Driven AI, Thermodynamic Autopoiesis, and Decentralized Infrastructure.
+
+---
+
+*Last updated: June 2026 — this archive is maintained for historical reference only.*
